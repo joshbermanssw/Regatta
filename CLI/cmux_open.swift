@@ -2653,12 +2653,12 @@ extension CMUXCLI {
 
         var darkTheme = DiffViewerTheme(
             generatedName: "cmux-ghostty-dark",
-            ghosttyName: "Apple System Colors",
+            ghosttyName: "Blue Matrix",
             type: "dark",
-            background: "#1e1e1e",
-            foreground: "#ffffff",
-            selectionBackground: "#3f638b",
-            selectionForeground: "#ffffff",
+            background: "#101116",
+            foreground: "#00a2ff",
+            selectionBackground: "#c1deff",
+            selectionForeground: "#000000",
             palette: [:]
         )
         applyDiffViewerThemeContents(diffViewerDefaultThemeConfigContents(preferredColorScheme: .dark), to: &darkTheme)
@@ -3025,27 +3025,28 @@ extension CMUXCLI {
             selection-foreground = #000000
             """
         case .dark:
+            // Blue Matrix palette — Regatta default dark theme
             return """
-            palette = 0=#1a1a1a
-            palette = 1=#cc372e
-            palette = 2=#26a439
-            palette = 3=#cdac08
-            palette = 4=#0869cb
-            palette = 5=#9647bf
-            palette = 6=#479ec2
-            palette = 7=#98989d
-            palette = 8=#464646
-            palette = 9=#ff453a
-            palette = 10=#32d74b
-            palette = 11=#ffd60a
-            palette = 12=#0a84ff
-            palette = 13=#bf5af2
-            palette = 14=#76d6ff
+            palette = 0=#101116
+            palette = 1=#ff5680
+            palette = 2=#00ff9c
+            palette = 3=#fffc58
+            palette = 4=#00b0ff
+            palette = 5=#d57bff
+            palette = 6=#76c1ff
+            palette = 7=#c7c7c7
+            palette = 8=#686868
+            palette = 9=#ff6e67
+            palette = 10=#5ffa68
+            palette = 11=#fffc67
+            palette = 12=#6871ff
+            palette = 13=#d682ec
+            palette = 14=#60fdff
             palette = 15=#ffffff
-            background = #1e1e1e
-            foreground = #ffffff
-            selection-background = #3f638b
-            selection-foreground = #ffffff
+            background = #101116
+            foreground = #00a2ff
+            selection-background = #c1deff
+            selection-foreground = #000000
             """
         }
     }

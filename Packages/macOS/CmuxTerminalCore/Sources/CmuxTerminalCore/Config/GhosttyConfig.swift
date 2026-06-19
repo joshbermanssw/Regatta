@@ -22,9 +22,9 @@ public struct GhosttyConfig {
     /// Native fallback light theme name used for fresh installs before the user
     /// has chosen terminal colors.
     public static let cmuxDefaultLightThemeName = "Apple System Colors Light"
-    /// Native fallback dark theme name used for fresh installs before the user
+    /// Regatta default dark theme name used for fresh installs before the user
     /// has chosen terminal colors.
-    public static let cmuxDefaultDarkThemeName = "Apple System Colors"
+    public static let cmuxDefaultDarkThemeName = "Blue Matrix"
 
     private static let loadCacheLock = NSLock()
     // Every read/write of this cache is serialized by `loadCacheLock` (see
@@ -445,29 +445,30 @@ public struct GhosttyConfig {
             selection-foreground = #000000
             """
         case .dark:
+            // Blue Matrix palette — Regatta default dark theme
             return """
-            palette = 0=#1a1a1a
-            palette = 1=#cc372e
-            palette = 2=#26a439
-            palette = 3=#cdac08
-            palette = 4=#0869cb
-            palette = 5=#9647bf
-            palette = 6=#479ec2
-            palette = 7=#98989d
-            palette = 8=#464646
-            palette = 9=#ff453a
-            palette = 10=#32d74b
-            palette = 11=#ffd60a
-            palette = 12=#0a84ff
-            palette = 13=#bf5af2
-            palette = 14=#76d6ff
+            palette = 0=#101116
+            palette = 1=#ff5680
+            palette = 2=#00ff9c
+            palette = 3=#fffc58
+            palette = 4=#00b0ff
+            palette = 5=#d57bff
+            palette = 6=#76c1ff
+            palette = 7=#c7c7c7
+            palette = 8=#686868
+            palette = 9=#ff6e67
+            palette = 10=#5ffa68
+            palette = 11=#fffc67
+            palette = 12=#6871ff
+            palette = 13=#d682ec
+            palette = 14=#60fdff
             palette = 15=#ffffff
-            background = #1e1e1e
-            foreground = #ffffff
-            cursor-color = #98989d
-            cursor-text = #ffffff
-            selection-background = #3f638b
-            selection-foreground = #ffffff
+            background = #101116
+            foreground = #00a2ff
+            cursor-color = #76ff9f
+            cursor-text = #a6a6a6
+            selection-background = #c1deff
+            selection-foreground = #000000
             """
         }
     }
