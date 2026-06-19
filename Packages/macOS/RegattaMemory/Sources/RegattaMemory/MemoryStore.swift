@@ -229,4 +229,107 @@ public actor MemoryStore {
             .filter { $0.text.lowercased().contains(needle) }
             .sorted { $0.createdAt < $1.createdAt }
     }
+
+    // MARK: - Inheritance-aware recall
+
+    /// Returns the resolved set of facts that apply at `scope`, applying
+    /// inheritance and conflict-supersede rules.
+    ///
+    /// ## What "applies at scope" means
+    ///
+    /// A fact *applies* at a given scope when its `scopePath` is either:
+    /// - Exactly the target scope, OR
+    /// - An ancestor of the target scope (i.e. its `scopePath` is a strict
+    ///   prefix component of the target scope's path).
+    ///
+    /// For example, if the target scope is `"acme/webapp/billing"`, then facts
+    /// with `scopePath` values of `""`, `"acme"`, `"acme/webapp"`, and
+    /// `"acme/webapp/billing"` all apply. Facts in a sibling scope such as
+    /// `"acme/webapps"` do NOT apply.
+    ///
+    /// ## Override / conflict-supersede rule
+    ///
+    /// Two facts **conflict** when they share the same ``MemoryFactType`` and
+    /// the same normalised first line of text (the "subject"). The normalised
+    /// subject is `fact.text` lowercased and stripped of leading/trailing
+    /// whitespace; only the first line is used, so multi-line facts that differ
+    /// after the first line can still conflict.
+    ///
+    /// When two facts conflict, the fact at the **nearer (more specific) scope**
+    /// wins: its text and metadata are used, and the ancestor's fact is excluded
+    /// from the resolved set.
+    ///
+    /// ## Return order
+    ///
+    /// Facts are returned ordered from **most-distant ancestor scope first**
+    /// (root) to **target scope last**, and within each scope by creation date
+    /// (oldest first). This means callers who process the list in order will
+    /// naturally see overriding facts later, making it easy to fold them with a
+    /// "last write wins" reduction if desired.
+    ///
+    /// Superseded facts (i.e. facts whose `id` appears in another fact's
+    /// `supersedes` list within the same store) are excluded from the resolved
+    /// set, preserving history while returning only the live knowledge.
+    ///
+    /// - Parameter scope: The target scope path. Use `""` for root — this
+    ///   returns only root-scope facts (no ancestors above root).
+    /// - Returns: The resolved, deduplicated, override-applied fact list.
+    public func resolvedFacts(forScope scope: String) -> [MemoryFact] {
+        let targetScope = MemoryScope(path: scope)
+
+        // Collect the full ancestry chain: root → ... → targetScope.
+        let ancestorChain = targetScope.ancestors()
+        // ancestorChain already includes targetScope itself as the last element.
+
+        // Build the set of all fact IDs that have been superseded within this
+        // store. A superseded fact is live history, but must not appear in the
+        // resolved output.
+        let supersededIDs = Set(facts.values.flatMap(\.supersedes))
+
+        // Collect live facts for each scope level in the ancestry chain,
+        // maintaining the root→nearest order.
+        var buckets: [[MemoryFact]] = []
+        for ancestor in ancestorChain {
+            let liveFacts = facts.values
+                .filter { $0.scopePath == ancestor.path && !supersededIDs.contains($0.id) }
+                .sorted { $0.createdAt < $1.createdAt }
+            if !liveFacts.isEmpty {
+                buckets.append(liveFacts)
+            }
+        }
+
+        // Flatten in ancestor→nearest order so we can apply overrides.
+        let ordered: [MemoryFact] = buckets.flatMap { $0 }
+
+        // Apply conflict-supersede: for each (type, normalisedSubject) key,
+        // keep only the fact from the most-specific (nearest) scope. Because
+        // `ordered` is already sorted root→nearest, we iterate and the last
+        // entry for a given key wins — achieved by using a dictionary and
+        // overwriting with later (nearer) values.
+        //
+        // We preserve insertion order so the final output respects the
+        // ancestor→nearest ordering.
+        typealias ConflictKey = String
+        func conflictKey(for fact: MemoryFact) -> ConflictKey {
+            let subject = fact.text
+                .split(separator: "\n", maxSplits: 1)
+                .first
+                .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+                ?? fact.text.trimmingCharacters(in: .whitespaces).lowercased()
+            return "\(fact.type.rawValue):\(subject)"
+        }
+
+        // First pass: determine, for each key, which fact (id) is the winner
+        // (the nearest-scope one). Since ordered is ancestor→nearest, the last
+        // assignment wins.
+        var winnerByKey: [ConflictKey: String] = [:]
+        for fact in ordered {
+            winnerByKey[conflictKey(for: fact)] = fact.id
+        }
+
+        // Second pass: retain only facts whose id is the winner for their key,
+        // preserving the original ancestor→nearest order.
+        let winnerIDs = Set(winnerByKey.values)
+        return ordered.filter { winnerIDs.contains($0.id) }
+    }
 }
