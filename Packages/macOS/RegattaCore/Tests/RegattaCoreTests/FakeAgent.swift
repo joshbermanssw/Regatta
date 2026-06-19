@@ -164,24 +164,35 @@ struct FakeAgent {
             "TMPDIR": NSTemporaryDirectory(),
         ]
 
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        // Redirect child stdout/stderr to temp FILES, not Pipes. Under parallel
+        // test execution (Swift Testing runs suites concurrently), Foundation's
+        // Process pipe FDs can be inherited by a sibling test's spawned child, so
+        // a pipe's write-end never closes and `readDataToEndOfFile()` deadlocks —
+        // it passes locally but hangs on CI. A regular file has no inheritable
+        // pipe write-end and cannot deadlock. stdin is /dev/null so a script that
+        // reads stdin can't block either.
+        let tmpDir = FileManager.default.temporaryDirectory
+        let outURL = tmpDir.appendingPathComponent("fakeagent-out-\(UUID().uuidString)")
+        let errURL = tmpDir.appendingPathComponent("fakeagent-err-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: outURL.path, contents: nil)
+        FileManager.default.createFile(atPath: errURL.path, contents: nil)
+        let outHandle = try FileHandle(forWritingTo: outURL)
+        let errHandle = try FileHandle(forWritingTo: errURL)
+        defer {
+            try? FileManager.default.removeItem(at: outURL)
+            try? FileManager.default.removeItem(at: errURL)
+        }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = outHandle
+        process.standardError = errHandle
 
         try process.run()
-
-        // Drain both pipes concurrently while the process runs to avoid pipe-buffer deadlock.
-        var stdoutData = Data()
-        var stderrData = Data()
-        let group = DispatchGroup()
-        DispatchQueue.global().async(group: group) { stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile() }
-        DispatchQueue.global().async(group: group) { stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile() }
         process.waitUntilExit()
-        group.wait()
+        try? outHandle.close()
+        try? errHandle.close()
 
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        let stdout = (try? Data(contentsOf: outURL)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        let stderr = (try? Data(contentsOf: errURL)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
 
         return FakeAgentRun(
             stdout: stdout,
