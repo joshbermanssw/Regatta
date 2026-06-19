@@ -59,6 +59,10 @@ tmp-*/
 .iter-logs/
 .claude/worktrees/
 
+# Regatta internal (handoff docs, subagent reports) — never commit
+.regatta/
+.regatta-reports/
+
 # Local dogfood scratch (screenshots, recordings) — never commit
 artifacts/
 
