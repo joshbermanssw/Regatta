@@ -187,6 +187,9 @@
          location = "group:CmuxWorkspaces">
       </FileRef>
       <FileRef
+         location = "group:RegattaBrain">
+      </FileRef>
+      <FileRef
          location = "group:RegattaCore">
       </FileRef>
       <FileRef

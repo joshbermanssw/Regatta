@@ -1,9 +1,11 @@
 import SwiftUI
 
 /// The Regatta right-rail root view, gated by `RegattaFeatureFlag`.
-/// Renders three collapsible sections — Brain, Fleet, and Memory —
-/// as empty shells. Content will be added in later Regatta slices.
+/// Renders three collapsible sections — Brain, Fleet, and Memory.
+/// The Brain section hosts ``BrainChatView`` driven by ``RegattaBrainViewModel``.
 struct RegattaRailView: View {
+    @State private var brainViewModel = RegattaBrainViewModel()
+
     var body: some View {
         ScrollView(.vertical) {
             VStack(spacing: 0) {
@@ -11,7 +13,7 @@ struct RegattaRailView: View {
                     title: String(localized: "regatta.rail.section.brain", defaultValue: "Brain"),
                     symbolName: "cpu"
                 ) {
-                    placeholder
+                    BrainChatView(viewModel: brainViewModel)
                 }
 
                 RegattaRailSection(
@@ -33,11 +35,14 @@ struct RegattaRailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("RegattaRailView")
+        .onAppear {
+            // Register with the manager so AppDelegate can tear down the
+            // brain session on app quit.
+            RegattaBrainManager.shared.viewModel = brainViewModel
+        }
     }
 
-    /// Subtle empty-state placeholder shown under each section while content is
-    /// not yet implemented. Keeps the section body non-zero in height so
-    /// collapse/expand behaves correctly.
+    /// Subtle empty-state placeholder shown under sections not yet implemented.
     private var placeholder: some View {
         Text(String(localized: "regatta.rail.section.placeholder", defaultValue: "Coming soon"))
             .font(.system(size: 11))
