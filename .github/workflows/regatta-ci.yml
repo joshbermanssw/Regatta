@@ -1,0 +1,145 @@
+name: Regatta CI
+
+# Regatta is an independent app (a cmux fork that is never merged back upstream).
+# cmux's own CI targets private third-party runners (warp/depot/blacksmith) the
+# fork has no access to, so those workflows were removed. This is the fork's own
+# CI: it builds the app + the unit-test bundle on a GitHub-hosted macOS runner
+# and runs the Regatta-owned test suites. Ghostty is NOT compiled here — a
+# pinned, prebuilt GhosttyKit.xcframework is downloaded from a public release.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-and-test:
+    runs-on: macos-26
+    timeout-minutes: 75
+    env:
+      # GhosttyKit is downloaded prebuilt; never compile Ghostty in CI.
+      CMUX_SKIP_ZIG_BUILD: "1"
+      # Keep XCTest/Swift-Testing crash handling non-interactive so a crashed
+      # app-host can't hang the runner in the Swift crash backtracer.
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      - name: Select newest Xcode
+        run: |
+          set -euo pipefail
+          XCODE_APP="$(find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
+          if [ -z "$XCODE_APP" ]; then
+            echo "No Xcode.app found under /Applications" >&2
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$XCODE_APP/Contents/Developer" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+
+      - name: Capture Ghostty revision
+        id: ghostty-revision
+        run: echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache GhosttyKit.xcframework
+        id: cache-ghosttykit
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: GhosttyKit.xcframework
+          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
+
+      - name: Download prebuilt GhosttyKit.xcframework
+        if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Cache Swift packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .ci-source-packages
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+
+      - name: Prepare isolated DerivedData
+        run: |
+          set -euo pipefail
+          DD="${RUNNER_TEMP}/regatta-dd-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$DD"; mkdir -p "$DD"
+          echo "REGATTA_DD=$DD" >> "$GITHUB_ENV"
+          echo "REGATTA_SPM=$PWD/.ci-source-packages" >> "$GITHUB_ENV"
+
+      - name: Resolve Swift packages
+        run: |
+          set -euo pipefail
+          mkdir -p "$REGATTA_SPM"
+          for attempt in 1 2 3; do
+            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+                -derivedDataPath "$REGATTA_DD" \
+                -clonedSourcePackagesDirPath "$REGATTA_SPM" \
+                -resolvePackageDependencies; then
+              # A restored cache can report success without the binary artifacts
+              # (Sparkle/Sentry) present; verify and retry on a poisoned cache.
+              if [ -d "$REGATTA_SPM/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
+                 && [ -d "$REGATTA_SPM/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
+                exit 0
+              fi
+              echo "Resolve succeeded but binary artifacts missing (stale cache); clearing and retrying" >&2
+              rm -rf "$REGATTA_SPM"
+            fi
+            [ "$attempt" -eq 3 ] && { echo "Failed to resolve Swift packages after 3 attempts" >&2; exit 1; }
+            echo "Package resolution failed on attempt $attempt; retrying..."
+            sleep $((attempt * 5))
+          done
+
+      - name: Build app + unit-test bundle (compiles, launches nothing)
+        run: |
+          set -euo pipefail
+          xcodebuild build-for-testing \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$REGATTA_DD" \
+            -clonedSourcePackagesDirPath "$REGATTA_SPM" \
+            -disableAutomaticPackageResolution \
+            -destination 'platform=macOS' \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            | { command -v xcbeautify >/dev/null 2>&1 && xcbeautify || cat; }
+          test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Run Regatta unit tests
+        run: |
+          set -euo pipefail
+          # Run only the Regatta-owned suites that exist on this branch. The
+          # inherited cmux suites are out of scope for the fork's gate; new
+          # Regatta slices add their suites here as they land.
+          ONLY=()
+          [ -f cmuxTests/RegattaFeatureFlagTests.swift ] && ONLY+=(-only-testing:cmuxTests/RegattaFeatureFlagTests)
+          [ -f cmuxTests/Regatta/FakeAgentHarnessTests.swift ] && ONLY+=(-only-testing:cmuxTests/FakeAgentHarnessTests)
+          if [ "${#ONLY[@]}" -eq 0 ]; then
+            echo "No Regatta test suites present on this branch; build-for-testing was the gate."
+            exit 0
+          fi
+          echo "Running Regatta suites: ${ONLY[*]}"
+          xcodebuild test-without-building \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$REGATTA_DD" \
+            -clonedSourcePackagesDirPath "$REGATTA_SPM" \
+            -disableAutomaticPackageResolution \
+            -destination 'platform=macOS' \
+            "${ONLY[@]}" \
+            | { command -v xcbeautify >/dev/null 2>&1 && xcbeautify || cat; }
+          test "${PIPESTATUS[0]}" -eq 0
