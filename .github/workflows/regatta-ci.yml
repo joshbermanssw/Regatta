@@ -109,13 +109,25 @@ jobs:
             sleep $((attempt * 5))
           done
 
-      - name: Run RegattaCore package tests (headless, no app host)
-        timeout-minutes: 8
+      - name: Run Regatta package tests (headless, no app host)
+        timeout-minutes: 15
         run: |
           set -uo pipefail
-          ( cd Packages/macOS/RegattaCore && xcrun swift test 2>&1 ) | tee regattacore-test.log
-          rc=${PIPESTATUS[0]}
-          test "$rc" -eq 0
+          # Every Packages/macOS/Regatta* package is a standalone SwiftPM package
+          # whose tests run via `swift test` (SwiftPM's own runner, no cmux app
+          # host) — so subprocess-spawning tests can't hit the app-host deadlock.
+          # New Regatta backend packages are picked up automatically.
+          FAILED=()
+          for pkg in Packages/macOS/Regatta*/; do
+            [ -f "$pkg/Package.swift" ] || continue
+            name="$(basename "$pkg")"
+            echo "::group::swift test — $name"
+            ( cd "$pkg" && xcrun swift test 2>&1 ) | tee "swifttest-$name.log"
+            rc=${PIPESTATUS[0]}
+            echo "::endgroup::"
+            [ "$rc" -ne 0 ] && { echo "::error::$name swift test failed (exit $rc)"; FAILED+=("$name"); }
+          done
+          if [ "${#FAILED[@]}" -ne 0 ]; then echo "Failed packages: ${FAILED[*]}"; exit 1; fi
 
       - name: Build app + unit-test bundle (compiles, launches nothing)
         run: |
@@ -159,6 +171,7 @@ jobs:
           SUITES=()
           [ -f cmuxTests/RegattaFeatureFlagTests.swift ] && SUITES+=("cmuxTests/RegattaFeatureFlagTests")
           [ -f cmuxTests/Regatta/RegattaRailModeTests.swift ] && SUITES+=("cmuxTests/RegattaRailModeTests")
+          [ -f cmuxTests/Regatta/RegattaBlueMatrixDefaultThemeTests.swift ] && SUITES+=("cmuxTests/RegattaBlueMatrixDefaultThemeTests")
           if [ "${#SUITES[@]}" -eq 0 ]; then
             echo "No Regatta test suites present on this branch; build-for-testing was the gate."
             exit 0
