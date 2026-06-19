@@ -169,9 +169,12 @@ struct RegattaWorktreeManagerTests {
         let dirtyFile = worktree.path.appendingPathComponent("dirty.txt")
         try "uncommitted change\n".write(to: dirtyFile, atomically: true, encoding: .utf8)
 
-        // force:false must throw .worktreeDirty.
-        await #expect(throws: WorktreeError.self) {
+        // force:false must throw .worktreeDirty specifically.
+        await #expect {
             try await manager.cleanup(forWorker: "worker-dirty", force: false)
+        } throws: { error in
+            guard case .worktreeDirty = error as? WorktreeError else { return false }
+            return true
         }
 
         // Directory must still exist (guard fired; nothing was deleted).
@@ -197,12 +200,15 @@ struct RegattaWorktreeManagerTests {
 
         let manager = RegattaWorktreeManager(baseDirectory: base)
 
-        await #expect(throws: WorktreeError.self) {
+        await #expect {
             try await manager.createWorktree(
                 forWorker: "worker-nogit",
                 repoURL: notARepo,
                 branch: "regatta-nogit"
             )
+        } throws: { error in
+            guard case .notAGitRepository = error as? WorktreeError else { return false }
+            return true
         }
     }
 
@@ -215,8 +221,42 @@ struct RegattaWorktreeManagerTests {
 
         let manager = RegattaWorktreeManager(baseDirectory: base)
 
-        await #expect(throws: WorktreeError.self) {
+        await #expect {
             try await manager.cleanup(forWorker: "nobody")
+        } throws: { error in
+            guard case .noWorktreeForWorker = error as? WorktreeError else { return false }
+            return true
+        }
+    }
+
+    // MARK: duplicate workerID guard
+
+    @Test("createWorktree throws worktreeAlreadyExists when the worker ID is already tracked")
+    func createWorktreeThrowsForDuplicateWorkerID() async throws {
+        let repo = try makeFixtureRepo()
+        let base = makeTempDir(label: "duplicate")
+        defer {
+            try? FileManager.default.removeItem(at: repo)
+            try? FileManager.default.removeItem(at: base)
+        }
+
+        let manager = RegattaWorktreeManager(baseDirectory: base)
+        _ = try await manager.createWorktree(
+            forWorker: "worker-dup",
+            repoURL: repo,
+            branch: "regatta-dup-1"
+        )
+
+        // A second createWorktree for the same workerID must throw .worktreeAlreadyExists.
+        await #expect {
+            try await manager.createWorktree(
+                forWorker: "worker-dup",
+                repoURL: repo,
+                branch: "regatta-dup-2"
+            )
+        } throws: { error in
+            guard case .worktreeAlreadyExists(let id) = error as? WorktreeError else { return false }
+            return id == "worker-dup"
         }
     }
 }

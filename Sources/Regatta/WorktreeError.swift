@@ -11,6 +11,9 @@ enum WorktreeError: Error, CustomStringConvertible {
     /// No worktree is tracked for the requested worker ID.
     case noWorktreeForWorker(String)
 
+    /// A worktree is already tracked for the given worker ID.
+    case worktreeAlreadyExists(workerID: String)
+
     /// A git command exited with a non-zero status.
     case gitCommandFailed(command: String, exitCode: Int32, stderr: String)
 
@@ -22,6 +25,8 @@ enum WorktreeError: Error, CustomStringConvertible {
             return "Worktree at \(path.path) has uncommitted changes. Pass force: true to remove it anyway."
         case .noWorktreeForWorker(let workerID):
             return "No worktree is tracked for worker '\(workerID)'."
+        case .worktreeAlreadyExists(let workerID):
+            return "A worktree is already tracked for worker '\(workerID)'."
         case .gitCommandFailed(let command, let exitCode, let stderr):
             return "git command '\(command)' failed with exit code \(exitCode): \(stderr)"
         }

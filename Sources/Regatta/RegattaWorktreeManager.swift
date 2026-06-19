@@ -62,20 +62,17 @@ actor RegattaWorktreeManager {
     ///     callers should use a unique branch name (e.g. derived from `workerID`
     ///     plus a timestamp or UUID).
     /// - Returns: The newly created ``RegattaWorktree``.
-    /// - Throws: ``WorktreeError/notAGitRepository`` if `repoURL` is not a git
-    ///   repo; ``WorktreeError/gitCommandFailed(command:exitCode:stderr:)`` if
-    ///   git exits non-zero; or a file-system error if directory creation fails.
+    /// - Throws: ``WorktreeError/worktreeAlreadyExists(workerID:)`` if a worktree
+    ///   is already tracked for `workerID`; ``WorktreeError/notAGitRepository`` if
+    ///   `repoURL` is not a git repo; ``WorktreeError/gitCommandFailed(command:exitCode:stderr:)``
+    ///   if git exits non-zero; or a file-system error if directory creation fails.
     func createWorktree(
         forWorker workerID: String,
         repoURL: URL,
         branch: String
     ) async throws -> RegattaWorktree {
         guard worktrees[workerID] == nil else {
-            throw WorktreeError.gitCommandFailed(
-                command: "worktree add",
-                exitCode: -1,
-                stderr: "A worktree is already tracked for worker '\(workerID)'. Clean it up first."
-            )
+            throw WorktreeError.worktreeAlreadyExists(workerID: workerID)
         }
 
         // Validate that repoURL is a git repository.
