@@ -80,6 +80,12 @@ final class RegattaMemoryViewModel {
     @ObservationIgnored
     private let store: MemoryStore?
 
+    /// The in-flight reload, cancelled and replaced on each `refresh()` so rapid
+    /// re-entry (e.g. the rail section collapsed/expanded quickly) can't race two
+    /// loads to a stale node set or a stuck spinner.
+    @ObservationIgnored
+    private var refreshTask: Task<Void, Never>?
+
     // MARK: - Init
 
     /// Creates a view-model backed by the given store.
@@ -109,10 +115,12 @@ final class RegattaMemoryViewModel {
             )
             return
         }
+        refreshTask?.cancel()
         isLoading = true
         loadError = nil
-        Task {
+        refreshTask = Task {
             let facts = await store.allFacts()
+            guard !Task.isCancelled else { return }
             let built = Self.buildTree(from: facts)
             self.nodes = built
             self.isLoading = false
