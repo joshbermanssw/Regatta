@@ -146,6 +146,7 @@ jobs:
           [ -f cmuxTests/RegattaFeatureFlagTests.swift ] && ONLY+=(-only-testing:cmuxTests/RegattaFeatureFlagTests)
           [ -f cmuxTests/Regatta/FakeAgentHarnessTests.swift ] && ONLY+=(-only-testing:cmuxTests/FakeAgentHarnessTests)
           [ -f cmuxTests/Regatta/RegattaRailModeTests.swift ] && ONLY+=(-only-testing:cmuxTests/RegattaRailModeTests)
+          [ -f cmuxTests/Regatta/RegattaWorktreeManagerTests.swift ] && ONLY+=(-only-testing:cmuxTests/RegattaWorktreeManagerTests)
           if [ "${#ONLY[@]}" -eq 0 ]; then
             echo "No Regatta test suites present on this branch; build-for-testing was the gate."
             exit 0
