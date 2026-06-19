@@ -199,10 +199,27 @@ public actor RegattaWorktreeManager {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git"] + arguments
 
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        // Redirect git's stdout/stderr to temp FILES, not Pipes. Under concurrent
+        // spawns (parallel tests, or the orchestrator launching workers in
+        // parallel), Foundation's Process pipe FDs can be inherited by a sibling
+        // child so a pipe write-end never closes and a pipe read deadlocks (passes
+        // locally, hangs on CI / under load). A regular file has no inheritable
+        // pipe write-end and cannot deadlock. stdin is /dev/null so git can never
+        // block on an interactive prompt.
+        let tmpDir = FileManager.default.temporaryDirectory
+        let outURL = tmpDir.appendingPathComponent("regatta-git-out-\(UUID().uuidString)")
+        let errURL = tmpDir.appendingPathComponent("regatta-git-err-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: outURL.path, contents: nil)
+        FileManager.default.createFile(atPath: errURL.path, contents: nil)
+        let outHandle = try FileHandle(forWritingTo: outURL)
+        let errHandle = try FileHandle(forWritingTo: errURL)
+        defer {
+            try? FileManager.default.removeItem(at: outURL)
+            try? FileManager.default.removeItem(at: errURL)
+        }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = outHandle
+        process.standardError = errHandle
 
         // One-shot termination guard: the Process termination handler races
         // with any spawn failure to resume one continuation exactly once.
@@ -215,23 +232,12 @@ public actor RegattaWorktreeManager {
         }
 
         try process.run()
-
-        // Drain both pipes concurrently on detached tasks keyed by their raw
-        // file descriptor (Int32 is Sendable; FileHandle is not, so we must
-        // not capture the Pipe or FileHandle objects directly).
-        let outFD = stdoutPipe.fileHandleForReading.fileDescriptor
-        let errFD = stderrPipe.fileHandleForReading.fileDescriptor
-
-        async let outData: Data = Task.detached(priority: .utility) {
-            WorktreePipeDrainer.drain(fileDescriptor: outFD)
-        }.value
-
-        async let errData: Data = Task.detached(priority: .utility) {
-            WorktreePipeDrainer.drain(fileDescriptor: errFD)
-        }.value
-
         let exitCode = await termination.wait()
-        let (stdout, stderr) = await (outData, errData)
+        try? outHandle.close()
+        try? errHandle.close()
+
+        let stdout = (try? Data(contentsOf: outURL)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        let stderr = (try? Data(contentsOf: errURL)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
 
         // Pick a human-readable command label for the error.
         let commandLabel = arguments
@@ -241,15 +247,14 @@ public actor RegattaWorktreeManager {
             ?? "git"
 
         guard exitCode == 0 else {
-            let stderrText = String(data: stderr, encoding: .utf8) ?? ""
             throw WorktreeError.gitCommandFailed(
                 command: commandLabel,
                 exitCode: exitCode,
-                stderr: stderrText
+                stderr: stderr
             )
         }
 
-        return String(data: stdout, encoding: .utf8) ?? ""
+        return stdout
     }
 
     /// Sanitizes a worker ID to a safe directory name component.
@@ -307,33 +312,5 @@ private final class WorktreeProcessTermination: @unchecked Sendable {
     }
 }
 
-// MARK: - WorktreePipeDrainer
-
-/// Drains a file descriptor to end-of-file and returns the accumulated data.
-///
-/// Called from a detached `Task` to avoid pipe-buffer deadlock. The fd is
-/// `Int32` (Sendable) so we can safely capture it across task boundaries
-/// without wrapping a non-Sendable `FileHandle`.
-enum WorktreePipeDrainer {
-    static func drain(fileDescriptor fd: Int32) -> Data {
-        // Wrap the raw fd — closeOnDealloc: false so we don't double-close
-        // the fd that the Pipe still owns.
-        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
-        var result = Data()
-        while true {
-            let chunk: Data
-            do {
-                // read(upToCount:) returns nil on EOF on older SDKs; empty on newer.
-                if let d = try handle.read(upToCount: 65536), !d.isEmpty {
-                    chunk = d
-                } else {
-                    break
-                }
-            } catch {
-                break
-            }
-            result.append(chunk)
-        }
-        return result
-    }
-}
+// (WorktreePipeDrainer removed: git output is now captured via temp files, not
+// pipes, so there is no pipe FD to drain.)
