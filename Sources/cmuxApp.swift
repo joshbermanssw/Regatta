@@ -62,6 +62,7 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+    @AppStorage(RegattaFeatureFlag.flagKey) private var regattaEnabled = RegattaFeatureFlag.defaultValue
     @State private var browserFocusModeMenuRevision = 0
     @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -700,6 +701,12 @@ struct cmuxApp: App {
 
                 Button("Trigger Sentry Test Crash") {
                     appDelegate.triggerSentryTestCrash(nil)
+                }
+
+                if regattaEnabled {
+                    Button(String(localized: "regatta.debug.open", defaultValue: "Open Regatta…")) {
+                        RegattaPlaceholderWindowController.shared.show()
+                    }
                 }
             }
 #endif

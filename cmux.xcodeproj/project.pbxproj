@@ -595,6 +595,9 @@
 		A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */; };
 		A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
+		E945A2454EB52903AA136DD0 /* RegattaFeatureFlag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AB265C045B64664664848A4 /* RegattaFeatureFlag.swift */; };
+		B2A2438A53E8224EAA45107C /* RegattaFeatureFlagTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A423581158A70EF6CDFF358E /* RegattaFeatureFlagTests.swift */; };
+		91DBE32A038E29038975A885 /* RegattaPlaceholderWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925D32D4FD5365728201E971 /* RegattaPlaceholderWindow.swift */; };
 		A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0000000000000000001 /* ReleasingWindowController.swift */; };
 		A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */; };
 		EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */; };
@@ -1572,6 +1575,9 @@
 		A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectSchemesTabView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectTargetsTabView.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
+		4AB265C045B64664664848A4 /* RegattaFeatureFlag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaFeatureFlag.swift; sourceTree = "<group>"; };
+		A423581158A70EF6CDFF358E /* RegattaFeatureFlagTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaFeatureFlagTests.swift; sourceTree = "<group>"; };
+		925D32D4FD5365728201E971 /* RegattaPlaceholderWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaPlaceholderWindow.swift; sourceTree = "<group>"; };
 		A6D1F0000000000000000001 /* ReleasingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ReleasingWindowController.swift; sourceTree = "<group>"; };
 		A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleasingWindowControllerTests.swift; sourceTree = "<group>"; };
 		EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteDaemonStrings+App.swift"; sourceTree = "<group>"; };
@@ -2704,9 +2710,19 @@
 				590E4F5F342E5B27010ECC8D /* Cloud */,
 				FEED0000000000000000F003 /* Feed */,
 				59065015952E1B5BE5E23519 /* Mobile */,
+				2073F93227CE057D517475B2 /* Regatta */,
 				31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */,
 			);
 			path = Sources;
+			sourceTree = "<group>";
+		};
+		2073F93227CE057D517475B2 /* Regatta */ = {
+			isa = PBXGroup;
+			children = (
+				4AB265C045B64664664848A4 /* RegattaFeatureFlag.swift */,
+				925D32D4FD5365728201E971 /* RegattaPlaceholderWindow.swift */,
+			);
+			path = Regatta;
 			sourceTree = "<group>";
 		};
 		CA52D0010000000000000000 /* Canvas */ = {
@@ -2932,6 +2948,7 @@
 				17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */,
 				A6D1F0100000000000000001 /* MainWindowVisibilityLifecycleTests.swift */,
 				A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */,
+				A423581158A70EF6CDFF358E /* RegattaFeatureFlagTests.swift */,
 				A11EAA000000000000000001 /* AppearanceSettingsTests.swift */,
 				6313FACE0000000000000001 /* PaneMemoryGuardrailTests.swift */,
 				C0DE10510000000000000002 /* MobileHostServiceSettingsTests.swift */,
@@ -3771,6 +3788,8 @@
 					A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */,
 					A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */,
 				A500RG01 /* ReactGrab.swift in Sources */,
+				E945A2454EB52903AA136DD0 /* RegattaFeatureFlag.swift in Sources */,
+				91DBE32A038E29038975A885 /* RegattaPlaceholderWindow.swift in Sources */,
 				A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */,
 				EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */,
 				E30780000000000000000016 /* RemoteDropUploadError+LocalizedError.swift in Sources */,
@@ -4271,6 +4290,7 @@
 				B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */,
 				DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */,
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
+				B2A2438A53E8224EAA45107C /* RegattaFeatureFlagTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
 				REE0CA0000000000000000B2 /* RemotesClientTests.swift in Sources */,
 				0A17C0DE0A17C0DE0A17C004 /* RemoteTmuxAuthTests.swift in Sources */,
