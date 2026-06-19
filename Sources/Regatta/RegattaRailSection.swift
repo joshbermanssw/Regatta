@@ -44,8 +44,7 @@ struct RegattaRailSection<Content: View>: View {
 
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .rightSidebarChromeBar()
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

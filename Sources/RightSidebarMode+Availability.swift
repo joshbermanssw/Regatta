@@ -26,7 +26,7 @@ extension RightSidebarMode {
         )
     }
 
-    static func availableModes(feedEnabled: Bool, dockEnabled: Bool, regattaEnabled: Bool = false) -> [RightSidebarMode] {
+    static func availableModes(feedEnabled: Bool, dockEnabled: Bool, regattaEnabled: Bool) -> [RightSidebarMode] {
         allCases.filter { $0.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled, regattaEnabled: regattaEnabled) }
     }
 
@@ -38,7 +38,7 @@ extension RightSidebarMode {
         )
     }
 
-    func isAvailable(feedEnabled: Bool, dockEnabled: Bool, regattaEnabled: Bool = false) -> Bool {
+    func isAvailable(feedEnabled: Bool, dockEnabled: Bool, regattaEnabled: Bool) -> Bool {
         switch self {
         case .files, .find, .sessions:
             return true
