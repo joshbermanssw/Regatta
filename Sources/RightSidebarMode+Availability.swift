@@ -21,22 +21,24 @@ extension RightSidebarMode {
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
         availableModes(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
+            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
+            regattaEnabled: RegattaFeatureFlag(defaults: defaults).isEnabled
         )
     }
 
-    static func availableModes(feedEnabled: Bool, dockEnabled: Bool) -> [RightSidebarMode] {
-        allCases.filter { $0.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled) }
+    static func availableModes(feedEnabled: Bool, dockEnabled: Bool, regattaEnabled: Bool = false) -> [RightSidebarMode] {
+        allCases.filter { $0.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled, regattaEnabled: regattaEnabled) }
     }
 
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
         isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
+            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
+            regattaEnabled: RegattaFeatureFlag(defaults: defaults).isEnabled
         )
     }
 
-    func isAvailable(feedEnabled: Bool, dockEnabled: Bool) -> Bool {
+    func isAvailable(feedEnabled: Bool, dockEnabled: Bool, regattaEnabled: Bool = false) -> Bool {
         switch self {
         case .files, .find, .sessions:
             return true
@@ -44,6 +46,8 @@ extension RightSidebarMode {
             return feedEnabled
         case .dock:
             return dockEnabled
+        case .regatta:
+            return regattaEnabled
         }
     }
 }
