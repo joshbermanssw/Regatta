@@ -593,6 +593,7 @@
 		A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */; };
 		A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
+		6B6345EC749A434FAC8F4440 /* RegattaBlueMatrixDefaultThemeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEACCEBF195D4756BC432C79 /* RegattaBlueMatrixDefaultThemeTests.swift */; };
 		E945A2454EB52903AA136DD0 /* RegattaFeatureFlag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AB265C045B64664664848A4 /* RegattaFeatureFlag.swift */; };
 		B2A2438A53E8224EAA45107C /* RegattaFeatureFlagTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A423581158A70EF6CDFF358E /* RegattaFeatureFlagTests.swift */; };
 		91DBE32A038E29038975A885 /* RegattaPlaceholderWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925D32D4FD5365728201E971 /* RegattaPlaceholderWindow.swift */; };
@@ -1574,6 +1575,7 @@
 		A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectSchemesTabView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectTargetsTabView.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
+		CEACCEBF195D4756BC432C79 /* RegattaBlueMatrixDefaultThemeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Regatta/RegattaBlueMatrixDefaultThemeTests.swift; sourceTree = "<group>"; };
 		4AB265C045B64664664848A4 /* RegattaFeatureFlag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaFeatureFlag.swift; sourceTree = "<group>"; };
 		A423581158A70EF6CDFF358E /* RegattaFeatureFlagTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaFeatureFlagTests.swift; sourceTree = "<group>"; };
 		925D32D4FD5365728201E971 /* RegattaPlaceholderWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaPlaceholderWindow.swift; sourceTree = "<group>"; };
@@ -2954,6 +2956,7 @@
 				A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */,
 				A423581158A70EF6CDFF358E /* RegattaFeatureFlagTests.swift */,
 				96F7B20A6E94CC93127FDF45 /* RegattaRailModeTests.swift */,
+				CEACCEBF195D4756BC432C79 /* RegattaBlueMatrixDefaultThemeTests.swift */,
 				A11EAA000000000000000001 /* AppearanceSettingsTests.swift */,
 				6313FACE0000000000000001 /* PaneMemoryGuardrailTests.swift */,
 				C0DE10510000000000000002 /* MobileHostServiceSettingsTests.swift */,
@@ -4293,6 +4296,7 @@
 				B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */,
 				DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */,
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
+				6B6345EC749A434FAC8F4440 /* RegattaBlueMatrixDefaultThemeTests.swift in Sources */,
 				B2A2438A53E8224EAA45107C /* RegattaFeatureFlagTests.swift in Sources */,
 				6E88CF3593A8306CBF7E714A /* RegattaRailModeTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
