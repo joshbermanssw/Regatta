@@ -23,7 +23,9 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: macos-26
-    timeout-minutes: 75
+    # Build is ~12 min; tests a few more. Cap well below the old 75 so an
+    # app-host brokering hang can never burn over half an hour again.
+    timeout-minutes: 35
     env:
       # GhosttyKit is downloaded prebuilt; never compile Ghostty in CI.
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -120,26 +122,56 @@ jobs:
             | { command -v xcbeautify >/dev/null 2>&1 && xcbeautify || cat; }
           test "${PIPESTATUS[0]}" -eq 0
 
-      - name: Run Regatta unit tests
+      - name: Enable test automation mode
         run: |
           set -euo pipefail
+          # App-hosted tests (esp. Swift Testing) need testmanagerd automation
+          # brokering or the test host launches and hangs with no output. cmux's
+          # own CI enables this; omitting it caused a 75-min hang on the first
+          # Swift Testing suite. Best-effort: warn (don't fail) if unavailable.
+          if command -v automationmodetool >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            sudo -n automationmodetool enable-automationmode-without-authentication \
+              || echo "::warning::automationmodetool failed; using default automation setup"
+          else
+            echo "::warning::automationmodetool/passwordless-sudo unavailable; using default automation setup"
+          fi
+
+      - name: Run Regatta unit tests
+        run: |
+          set -uo pipefail
           # Run only the Regatta-owned suites that exist on this branch. The
           # inherited cmux suites are out of scope for the fork's gate; new
           # Regatta slices add their suites here as they land.
           ONLY=()
           [ -f cmuxTests/RegattaFeatureFlagTests.swift ] && ONLY+=(-only-testing:cmuxTests/RegattaFeatureFlagTests)
           [ -f cmuxTests/Regatta/FakeAgentHarnessTests.swift ] && ONLY+=(-only-testing:cmuxTests/FakeAgentHarnessTests)
+          [ -f cmuxTests/Regatta/RegattaRailModeTests.swift ] && ONLY+=(-only-testing:cmuxTests/RegattaRailModeTests)
           if [ "${#ONLY[@]}" -eq 0 ]; then
             echo "No Regatta test suites present on this branch; build-for-testing was the gate."
             exit 0
           fi
           echo "Running Regatta suites: ${ONLY[*]}"
+          # Outer watchdog: if the test host hangs before producing results, kill
+          # it after 12 min so the step fails fast instead of riding the job
+          # timeout. Per-test allowances catch a single test that wedges.
           xcodebuild test-without-building \
             -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
             -derivedDataPath "$REGATTA_DD" \
             -clonedSourcePackagesDirPath "$REGATTA_SPM" \
             -disableAutomaticPackageResolution \
             -destination 'platform=macOS' \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 120 \
+            -maximum-test-execution-time-allowance 240 \
             "${ONLY[@]}" \
-            | { command -v xcbeautify >/dev/null 2>&1 && xcbeautify || cat; }
-          test "${PIPESTATUS[0]}" -eq 0
+            > test-output.log 2>&1 &
+          XCB_PID=$!
+          ( sleep 720; kill -9 "$XCB_PID" 2>/dev/null ) &
+          WATCHDOG_PID=$!
+          wait "$XCB_PID"; RC=$?
+          kill "$WATCHDOG_PID" 2>/dev/null || true
+          { command -v xcbeautify >/dev/null 2>&1 && xcbeautify < test-output.log || cat test-output.log; }
+          if [ "$RC" -ne 0 ]; then
+            echo "::error::Regatta tests failed or were killed by the 12-min watchdog (exit $RC)."
+            exit "$RC"
+          fi
