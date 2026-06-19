@@ -3,8 +3,10 @@ import SwiftUI
 /// The Regatta right-rail root view, gated by `RegattaFeatureFlag`.
 /// Renders three collapsible sections — Brain, Fleet, and Memory.
 /// The Brain section hosts ``BrainChatView`` driven by ``RegattaBrainViewModel``.
+/// The Memory section hosts ``MemoryInspectorView`` driven by ``RegattaMemoryViewModel``.
 struct RegattaRailView: View {
     @State private var brainViewModel = RegattaBrainViewModel()
+    @State private var memoryViewModel = RegattaMemoryViewModel()
 
     var body: some View {
         ScrollView(.vertical) {
@@ -27,7 +29,7 @@ struct RegattaRailView: View {
                     title: String(localized: "regatta.rail.section.memory", defaultValue: "Memory"),
                     symbolName: "books.vertical"
                 ) {
-                    placeholder
+                    MemoryInspectorView(viewModel: memoryViewModel)
                 }
 
                 Spacer(minLength: 0)
