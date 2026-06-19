@@ -109,6 +109,14 @@ jobs:
             sleep $((attempt * 5))
           done
 
+      - name: Run RegattaCore package tests (headless, no app host)
+        timeout-minutes: 8
+        run: |
+          set -uo pipefail
+          ( cd Packages/macOS/RegattaCore && xcrun swift test 2>&1 ) | tee regattacore-test.log
+          rc=${PIPESTATUS[0]}
+          test "$rc" -eq 0
+
       - name: Build app + unit-test bundle (compiles, launches nothing)
         run: |
           set -euo pipefail
@@ -145,11 +153,12 @@ jobs:
           # the watchdog (#40). Per-suite isolation gives clean per-suite output,
           # stops one wedged suite from taking the others down, and bounds each
           # suite with its own watchdog. New slices add their suite below.
+          # NOTE: FakeAgentHarnessTests and RegattaWorktreeManagerTests now live in
+          # Packages/macOS/RegattaCore and run headlessly via the "Run RegattaCore
+          # package tests" step above — do NOT re-add them here (they hang in the app host).
           SUITES=()
           [ -f cmuxTests/RegattaFeatureFlagTests.swift ] && SUITES+=("cmuxTests/RegattaFeatureFlagTests")
-          [ -f cmuxTests/Regatta/FakeAgentHarnessTests.swift ] && SUITES+=("cmuxTests/FakeAgentHarnessTests")
           [ -f cmuxTests/Regatta/RegattaRailModeTests.swift ] && SUITES+=("cmuxTests/RegattaRailModeTests")
-          [ -f cmuxTests/Regatta/RegattaWorktreeManagerTests.swift ] && SUITES+=("cmuxTests/RegattaWorktreeManagerTests")
           if [ "${#SUITES[@]}" -eq 0 ]; then
             echo "No Regatta test suites present on this branch; build-for-testing was the gate."
             exit 0
