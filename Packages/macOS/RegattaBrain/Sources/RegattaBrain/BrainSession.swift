@@ -139,11 +139,15 @@ public actor BrainSession {
             return
         }
         process.terminate()
-        let pid = process.processIdentifier
+        let capturedProcess = process
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
-            if let self, await self.isRunning {
-                kill(pid, SIGKILL)
+            // Guard on the same Process object to avoid escalating against a
+            // recycled pid if a new process started after this one exited.
+            if capturedProcess.isRunning {
+                _ = self  // keep actor alive for the duration
+                capturedProcess.terminate()
+                kill(capturedProcess.processIdentifier, SIGKILL)
             }
         }
     }

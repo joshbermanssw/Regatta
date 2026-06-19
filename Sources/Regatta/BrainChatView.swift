@@ -37,8 +37,11 @@ struct BrainChatView: View {
                     .foregroundStyle(.yellow)
                     .font(.system(size: 11))
                 Text(String(
-                    localized: "brain.chat.status.failed",
-                    defaultValue: "Claude not available: \(reason)"
+                    format: String(
+                        localized: "brain.chat.status.failed",
+                        defaultValue: "Claude not available: %@"
+                    ),
+                    reason
                 ))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)

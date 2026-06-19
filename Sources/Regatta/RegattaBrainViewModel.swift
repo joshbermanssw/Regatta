@@ -107,22 +107,15 @@ final class RegattaBrainViewModel {
 
     private func handle(_ event: BrainEvent) {
         switch event {
-        case .assistantDelta(let chunk):
-            // Append to the last assistant message in our local array so the
-            // streaming text appears without a round-trip to the actor.
-            if let lastIndex = messages.indices.last, messages[lastIndex].role == .assistant {
-                messages[lastIndex].text += chunk
-            } else {
-                // A new assistant turn started — pull the full transcript once
-                // so we pick up the message the actor just appended.
-                Task {
-                    guard let session = self.session else { return }
-                    self.messages = await session.messages()
-                }
+        case .assistantDelta:
+            // Mirror the actor's authoritative transcript on every delta so
+            // cross-turn corruption is impossible (no local optimistic concat).
+            Task {
+                guard let session = self.session else { return }
+                self.messages = await session.messages()
             }
         case .turnCompleted:
-            // Re-pull so any in-flight delta that arrived after the last event
-            // is captured accurately.
+            // Re-pull so the final assembled turn is reflected accurately.
             Task {
                 guard let session = self.session else { return }
                 self.messages = await session.messages()
