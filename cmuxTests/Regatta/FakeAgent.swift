@@ -5,8 +5,7 @@ import Foundation
 /// A value type that describes a sequence of steps for the fake-agent process to execute.
 ///
 /// Rendered to the `OUT`/`ERR`/`SLEEP`/`EXIT` line-directive fixture format understood by
-/// `fake-agent.sh`.  Keep fixture content small to avoid pipe-buffer deadlocks (the helper
-/// reads stdout/stderr after `waitUntilExit`).
+/// `fake-agent.sh`.
 struct FakeAgentScript {
     /// A single step in a fake-agent script.
     enum Step {
@@ -80,9 +79,9 @@ enum FakeAgentError: Error, CustomStringConvertible {
 /// so the script is always read from its on-disk source location on the same machine that
 /// compiled the tests — no Xcode bundle embedding needed.
 ///
-/// Pipe-buffer note: stdout/stderr are drained **after** `waitUntilExit()`.  This is safe only
-/// while fixture output is small (a few KB, well under the 64 KB macOS pipe buffer).
-/// Keep all fixtures tiny. This helper is framework-agnostic — it throws `FakeAgentError` rather
+/// Pipe-buffer safety: stdout/stderr are drained concurrently on background queues while the
+/// process runs, so this harness is deadlock-safe for arbitrary output size — no pipe-buffer
+/// ceiling applies. This helper is framework-agnostic — it throws `FakeAgentError` rather
 /// than calling any test framework assertion APIs.
 struct FakeAgent {
     // MARK: Script location
@@ -152,10 +151,12 @@ struct FakeAgent {
         return path
     }
 
-    /// Spawns the script, waits for exit, drains pipes, and returns the result.
+    /// Spawns the script, drains pipes concurrently, waits for exit, and returns the result.
     ///
-    /// Pipe-buffer safety: we call `waitUntilExit()` first and then drain the pipes synchronously.
-    /// This is safe for small fixture outputs (well under the 64 KB pipe buffer on macOS).
+    /// Pipe-buffer safety: stdout and stderr are drained concurrently on background queues while
+    /// the process runs, then we join with `group.wait()` after `waitUntilExit()`.  This prevents
+    /// the classic pipe-buffer deadlock where a process blocks on a full pipe while the parent
+    /// blocks in `waitUntilExit()` — the harness is safe for arbitrary output size.
     private func spawnAndCapture(scriptURL: URL, fixturePath: String) throws -> FakeAgentRun {
         let process = Process()
         process.executableURL = scriptURL
@@ -173,10 +174,15 @@ struct FakeAgent {
         process.standardError = stderrPipe
 
         try process.run()
-        process.waitUntilExit()
 
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        // Drain both pipes concurrently while the process runs to avoid pipe-buffer deadlock.
+        var stdoutData = Data()
+        var stderrData = Data()
+        let group = DispatchGroup()
+        DispatchQueue.global().async(group: group) { stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile() }
+        DispatchQueue.global().async(group: group) { stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile() }
+        process.waitUntilExit()
+        group.wait()
 
         let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
