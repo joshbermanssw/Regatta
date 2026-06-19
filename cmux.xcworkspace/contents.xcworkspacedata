@@ -186,6 +186,9 @@
       <FileRef
          location = "group:CmuxWorkspaces">
       </FileRef>
+      <FileRef
+         location = "group:RegattaCore">
+      </FileRef>
    </Group>
    <Group
       location = "container:Examples"
