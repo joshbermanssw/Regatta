@@ -3,6 +3,7 @@ import Foundation
 import RegattaCore
 import RegattaFleet
 import RegattaGitHub
+import RegattaLoopUI
 
 // MARK: - FleetSectionView
 
@@ -40,6 +41,15 @@ struct FleetSectionView: View {
     /// `@Observable` reference (snapshot-boundary rule).
     private let onSummon: () -> Void = { RegattaSummonManager.shared.summon() }
 
+    /// The worker whose loop view is currently open, or `nil` if none. The loop
+    /// view is mounted **outside** the worker `LazyVStack` so its `@Observable`
+    /// ``RegattaLoopViewModel`` never crosses the list snapshot boundary.
+    @State private var openLoopWorkerID: UUID?
+
+    /// The loop view model bound to the currently open worker's live loop (Seam
+    /// B). Rebuilt whenever a different worker's loop badge is opened.
+    @State private var loopViewModel: RegattaLoopViewModel?
+
     var body: some View {
         // Capture snapshots at this level — no @Observable read inside ForEach.
         let workers: [Worker] = viewModel.workers
@@ -48,6 +58,7 @@ struct FleetSectionView: View {
         return VStack(alignment: .leading, spacing: 0) {
             FleetConcurrencyCapRow()
             workerSection(workers, summon: summon)
+            loopMount
             summonRow(summon)
             Divider().opacity(0.3)
             handoffButton
@@ -59,6 +70,47 @@ struct FleetSectionView: View {
         }
     }
 
+    // MARK: - Loop view mount (Seam B)
+
+    /// The live loop view, mounted below the worker list and bound to the live
+    /// worker whose loop badge was opened. Empty when no loop is open.
+    @ViewBuilder
+    private var loopMount: some View {
+        if openLoopWorkerID != nil, let loopViewModel {
+            Divider().opacity(0.4)
+            RegattaLoopView(viewModel: loopViewModel)
+                .padding(.horizontal, 4)
+        }
+    }
+
+    /// Toggles the loop view for `worker`, building a fresh ``RegattaLoopViewModel``
+    /// bound to that live worker via the production ``OrchestratorLoopEngineProvider``.
+    private func toggleLoop(for worker: Worker) {
+        if openLoopWorkerID == worker.id {
+            loopViewModel?.shutdown()
+            openLoopWorkerID = nil
+            loopViewModel = nil
+            return
+        }
+        loopViewModel?.shutdown()
+        let manager = RegattaFleetManager.shared
+        let provider = OrchestratorLoopEngineProvider(
+            orchestrator: manager.orchestrator,
+            repoURL: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        )
+        loopViewModel = RegattaLoopViewModel(
+            configuration: RegattaLoopConfiguration(
+                goal: worker.prompt,
+                stopCondition: .iterations(5),
+                safetyCaps: RegattaLoopSafetyCaps(maxIterations: 25, tokenBudget: 100_000)
+            ),
+            workerID: worker.id.uuidString,
+            engineProvider: provider,
+            terminalJumper: OrchestratorLoopTerminalJumper()
+        )
+        openLoopWorkerID = worker.id
+    }
+
     // MARK: - Worker section (orchestrator)
 
     @ViewBuilder
@@ -66,12 +118,17 @@ struct FleetSectionView: View {
         if workers.isEmpty {
             workerEmptyView
         } else {
+            // Snapshot the open-loop id before the ForEach so rows receive a plain
+            // Bool, not an @Observable read (snapshot-boundary rule).
+            let openID = openLoopWorkerID
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(workers) { worker in
                     WorkerRow(
                         worker: worker,
+                        isLoopOpen: openID == worker.id,
                         onCancel: { viewModel.cancelWorker(worker.id) },
-                        onSummon: summon
+                        onSummon: summon,
+                        onToggleLoop: { toggleLoop(for: worker) }
                     )
                 }
             }
@@ -264,9 +321,13 @@ private struct FleetConcurrencyCapRow: View {
 /// rule).
 private struct WorkerRow: View {
     let worker: Worker
+    /// Whether this worker's loop view is currently open (drives the badge phase).
+    let isLoopOpen: Bool
     let onCancel: () -> Void
     /// Opens the worker-terminal grid overlay (issue #17).
     let onSummon: () -> Void
+    /// Toggles the live loop view bound to this worker (Seam B / issue #22).
+    let onToggleLoop: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -286,6 +347,16 @@ private struct WorkerRow: View {
                 }
             }
             Spacer(minLength: 4)
+            RegattaLoopBadge(
+                phase: isLoopOpen ? .running : .idle,
+                completedIterations: 0,
+                onOpen: onToggleLoop
+            )
+            .accessibilityHint(Text(
+                isLoopOpen
+                    ? String(localized: "regatta.fleet.loop.close.hint", defaultValue: "Closes the loop view")
+                    : String(localized: "regatta.fleet.loop.open.hint", defaultValue: "Opens the loop view for this worker")
+            ))
             if worker.status.isCancellable {
                 cancelButton
             }
