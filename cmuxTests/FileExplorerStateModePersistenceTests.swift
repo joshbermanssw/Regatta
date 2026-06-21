@@ -11,6 +11,69 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
     private let modeKey = "rightSidebar.mode"
     private let feedEnabledKey = RightSidebarBetaFeatureSettings.feedEnabledKey
     private let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+    private let regattaEnabledKey = RegattaFeatureFlag.flagKey
+    private let visibilityKey = "fileExplorer.isVisible"
+
+    func testDefaultModeIsRegattaWhenNoStoredModeAndFlagOn() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: modeKey)
+            defaults.set(true, forKey: regattaEnabledKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .regatta)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.regatta.rawValue)
+        }
+    }
+
+    func testDefaultModeFallsBackToFilesWhenRegattaDisabled() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: modeKey)
+            defaults.set(false, forKey: regattaEnabledKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .files)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.files.rawValue)
+        }
+    }
+
+    func testExistingStoredModeIsNotOverriddenByRegattaDefault() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(RightSidebarMode.find.rawValue, forKey: modeKey)
+            defaults.set(true, forKey: regattaEnabledKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .find, "An existing user's saved mode must not be replaced by the Regatta default")
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.find.rawValue)
+        }
+    }
+
+    func testRightSidebarVisibleByDefaultWhenUnset() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: visibilityKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertTrue(state.isVisible, "Right sidebar should be visible by default on first run")
+        }
+    }
+
+    func testRightSidebarRespectsExplicitHiddenChoice() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: visibilityKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertFalse(state.isVisible, "A user who hid the sidebar should keep it hidden")
+        }
+    }
 
     func testDisabledFeedStoredModeFallsBackToFiles() {
         withSavedRightSidebarModeDefaults {
@@ -77,10 +140,14 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         let previousMode = defaults.object(forKey: modeKey)
         let previousFeedEnabled = defaults.object(forKey: feedEnabledKey)
         let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
+        let previousRegattaEnabled = defaults.object(forKey: regattaEnabledKey)
+        let previousVisibility = defaults.object(forKey: visibilityKey)
         defer {
             restore(previousMode, forKey: modeKey)
             restore(previousFeedEnabled, forKey: feedEnabledKey)
             restore(previousDockEnabled, forKey: dockEnabledKey)
+            restore(previousRegattaEnabled, forKey: regattaEnabledKey)
+            restore(previousVisibility, forKey: visibilityKey)
         }
         body()
     }

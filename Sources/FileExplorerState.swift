@@ -34,16 +34,31 @@ final class FileExplorerState: ObservableObject {
 
     init() {
         let defaults = UserDefaults.standard
-        self.isVisible = defaults.bool(forKey: "fileExplorer.isVisible")
+        // Show the right sidebar by default on first run. Only honor an explicit
+        // stored value so a user who hid the sidebar keeps it hidden.
+        self.isVisible = defaults.object(forKey: "fileExplorer.isVisible") == nil
+            ? true
+            : defaults.bool(forKey: "fileExplorer.isVisible")
         let storedWidth = defaults.double(forKey: "fileExplorer.width")
         self.width = storedWidth > 0 ? CGFloat(storedWidth) : 220
         let storedPosition = defaults.double(forKey: "fileExplorer.dividerPosition")
         self.dividerPosition = storedPosition > 0 ? CGFloat(storedPosition) : 0.6
         let storedShowHidden = defaults.object(forKey: "fileExplorer.showHidden")
         self.showHiddenFiles = storedShowHidden == nil ? true : defaults.bool(forKey: "fileExplorer.showHidden")
-        let storedMode = RightSidebarMode(rawValue: defaults.string(forKey: Self.modeKey) ?? "") ?? .files
+        // Default to the Regatta rail when the user has no saved mode. If the
+        // stored mode string is present we honor it (clamped to availability),
+        // so an existing user's choice is never overridden.
+        let storedModeString = defaults.string(forKey: Self.modeKey)
+        let defaultMode = Self.initialDefaultMode(defaults: defaults)
+        let storedMode = storedModeString.flatMap { RightSidebarMode(rawValue: $0) } ?? defaultMode
         self.storedMode = Self.availableMode(storedMode, defaults: defaults)
         defaults.set(self.storedMode.rawValue, forKey: Self.modeKey)
+    }
+
+    /// The mode to select when the user has no previously stored choice.
+    /// Prefers Regatta when its feature flag makes it available; otherwise Files.
+    static func initialDefaultMode(defaults: UserDefaults) -> RightSidebarMode {
+        RightSidebarMode.regatta.isAvailable(defaults: defaults) ? .regatta : .files
     }
 
     func refreshModeAvailability(defaults: UserDefaults = .standard) {
