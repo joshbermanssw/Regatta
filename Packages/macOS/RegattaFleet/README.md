@@ -4,8 +4,9 @@ The Regatta Fleet domain: long-lived **PR shepherd watchers**.
 
 A shepherd is a persistent Fleet entity (distinct from an ephemeral worker) that
 polls one pull request's CI checks and review threads and reacts to changes.
-Issue #29 builds the handoff + watcher + initial polling; reacting to CI
-(fix-until-green, #30) and review-thread handling (#31) are later issues.
+Issue #29 builds the handoff + watcher + initial polling; the CI watch loop
+(fix-until-green, #30) reacts to failing checks; review-thread handling (#31) is
+a later issue.
 
 ## Types
 
@@ -20,6 +21,32 @@ Issue #29 builds the handoff + watcher + initial polling; reacting to CI
   `ShepherdState` over an `AsyncStream`.
 - `Fleet` (actor) — owns one watcher per PR; `handoff(_:)` is idempotent on PR
   identity; `snapshots()` streams the full shepherd list.
+
+### CI watch loop (#30)
+
+When a shepherd's checks transition to failing, the CI watch loop spawns a
+`ci-fix` worker scoped to the PR branch and loops "until checks green", pushing
+fixes and re-polling until green or a cap is hit.
+
+- `CIFixReactor` (actor) — observes `ShepherdState` failure transitions, spawns a
+  worker via `WorkerSpawning`, drives the fix loop, routes pushes through
+  `OutwardActionGate`, and publishes a `CIFixOutcome`.
+- `CIFixLoopCondition` (actor) — the "until checks green" exit condition; re-polls
+  via `PullRequestPolling`, stops on green or at the cap, continues on red.
+- `CIFixOutcome` — `.greenSuccess` or `.needsAttention(reason:)` (cap reached or
+  push denied).
+- `FleetCIFixBridge` (actor) — the wiring hook; forwards `Fleet.snapshots()` into
+  a `CIFixReactor` without touching the Fleet's internals.
+
+### Cross-branch seams (defined locally, replaced when those issues merge)
+
+- `LoopConditionEvaluating` / `LoopDecision` mirror the loop engine's pluggable
+  condition (#19). `CIFixLoopCondition` conforms; when #19 lands it becomes a
+  `RegattaLoopCondition` and the engine drives it.
+- `WorkerSpawning` / `CIFixWorkerHandle` / `CIFixWorkerSpec` mirror the pane
+  bridge / orchestrator (#14/#16). The composition root injects the real spawner.
+- `OutwardActionGate` / `OutwardAction` mirror the autonomy gate (#32). Every push
+  is routed through it; #32 supplies the real gate.
 
 ## Dependency seam
 
