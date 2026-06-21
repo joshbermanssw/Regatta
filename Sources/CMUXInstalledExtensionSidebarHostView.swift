@@ -285,7 +285,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             isLoading = false
             errorText = String(
                 localized: "sidebar.extensions.error",
-                defaultValue: "CMUX could not load sidebar extensions."
+                defaultValue: "Regatta could not load sidebar extensions."
             )
         }
     }
@@ -306,7 +306,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
         return String(
             localized: "sidebar.extensions.empty.detail",
-            defaultValue: "Install and enable a CMUX sidebar extension to show it here."
+            defaultValue: "Install and enable a Regatta sidebar extension to show it here."
         )
     }
 
@@ -314,7 +314,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         if unapprovedExtensionCount > 0 {
             return String(
                 localized: "sidebar.extensions.unapproved.detail",
-                defaultValue: "An installed sidebar extension needs approval before CMUX can use it."
+                defaultValue: "An installed sidebar extension needs approval before Regatta can use it."
             )
         }
         return String(
@@ -578,15 +578,15 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     private func blockedDetailText(reason: String) -> String {
         switch reason {
         case "connectionInterrupted":
-            return String(localized: "sidebar.extensions.blocked.detail.connectionInterrupted", defaultValue: "CMUX lost the extension connection. No workspace data or actions are being shared.")
+            return String(localized: "sidebar.extensions.blocked.detail.connectionInterrupted", defaultValue: "Regatta lost the extension connection. No workspace data or actions are being shared.")
         case "manifestTimedOut":
-            return String(localized: "sidebar.extensions.blocked.detail.manifestTimedOut", defaultValue: "CMUX did not receive this extension's configuration in time. No workspace data or actions are being shared.")
+            return String(localized: "sidebar.extensions.blocked.detail.manifestTimedOut", defaultValue: "Regatta did not receive this extension's configuration in time. No workspace data or actions are being shared.")
         case "missingManifest":
-            return String(localized: "sidebar.extensions.blocked.detail.missingManifest", defaultValue: "CMUX did not receive a sidebar extension configuration, so no workspace data or actions were shared.")
+            return String(localized: "sidebar.extensions.blocked.detail.missingManifest", defaultValue: "Regatta did not receive a sidebar extension configuration, so no workspace data or actions were shared.")
         case "invalidManifest":
-            return String(localized: "sidebar.extensions.blocked.detail.invalidManifest", defaultValue: "CMUX rejected this extension's configuration. No workspace data or actions were shared.")
+            return String(localized: "sidebar.extensions.blocked.detail.invalidManifest", defaultValue: "Regatta rejected this extension's configuration. No workspace data or actions were shared.")
         default:
-            return String(localized: "sidebar.extensions.blocked.detail.failedManifest", defaultValue: "CMUX could not load this extension's configuration. No workspace data or actions were shared.")
+            return String(localized: "sidebar.extensions.blocked.detail.failedManifest", defaultValue: "Regatta could not load this extension's configuration. No workspace data or actions were shared.")
         }
     }
 
@@ -774,7 +774,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 }
             }
 
-            Text(String(localized: "sidebar.extensions.access.review.detail", defaultValue: "CMUX will only share the following data and actions if you allow this request."))
+            Text(String(localized: "sidebar.extensions.access.review.detail", defaultValue: "Regatta will only share the following data and actions if you allow this request."))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

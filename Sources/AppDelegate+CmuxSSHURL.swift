@@ -25,7 +25,7 @@ enum DefaultTerminalRegistrationError: Error, LocalizedError {
         case .launchServicesRegistrationFailed:
             return String(
                 localized: "error.defaultTerminal.registrationFailed",
-                defaultValue: "cmux could not register as the default terminal app."
+                defaultValue: "Regatta could not register as the default terminal app."
             )
         }
     }
@@ -280,7 +280,7 @@ final class CmuxSSHURLProcessLauncher {
             presentLaunchFailure(
                 summary: String(
                     localized: "dialog.sshURL.launchFailed.missingCLI",
-                    defaultValue: "The bundled cmux CLI is missing from this app build."
+                    defaultValue: "The bundled Regatta CLI is missing from this app build."
                 ),
                 output: "",
                 preferredWindow: preferredWindow
@@ -717,12 +717,12 @@ extension AppDelegate {
         alert.alertStyle = .warning
         alert.messageText = String(
             localized: "dialog.sshURL.title",
-            defaultValue: "Open SSH Workspace in cmux?"
+            defaultValue: "Open SSH Workspace in Regatta?"
         )
         alert.informativeText = String(
             format: String(
                 localized: "dialog.sshURL.message",
-                defaultValue: "An external link wants to open \"%@\" in cmux. Do you want to open this SSH workspace?\n\nIf you did not initiate this request, it may represent an attempted attack on your system. Only continue if you explicitly started this action."
+                defaultValue: "An external link wants to open \"%@\" in Regatta. Do you want to open this SSH workspace?\n\nIf you did not initiate this request, it may represent an attempted attack on your system. Only continue if you explicitly started this action."
             ),
             request.displayTarget
         )
@@ -762,11 +762,11 @@ extension AppDelegate {
         let messageFormat = request.kind == .prompt
             ? String(
                 localized: "dialog.textURL.prompt.message",
-                defaultValue: "A %@:// link is asking cmux to paste a prompt into the current workspace. cmux cannot verify which website or app opened this link.\n\ncmux will paste the text into the terminal and will not press Return. Only continue if you trust this prompt."
+                defaultValue: "A %@:// link is asking Regatta to paste a prompt into the current workspace. Regatta cannot verify which website or app opened this link.\n\ncmux will paste the text into the terminal and will not press Return. Only continue if you trust this prompt."
             )
             : String(
                 localized: "dialog.textURL.rules.message",
-                defaultValue: "A %@:// link is asking cmux to paste rules into the current workspace. cmux cannot verify which website or app opened this link.\n\ncmux will paste the rules into the terminal and will not write files or press Return. Only continue if you trust these rules."
+                defaultValue: "A %@:// link is asking Regatta to paste rules into the current workspace. Regatta cannot verify which website or app opened this link.\n\ncmux will paste the rules into the terminal and will not write files or press Return. Only continue if you trust these rules."
             )
         alert.informativeText = String(
             format: messageFormat,
@@ -819,7 +819,7 @@ extension AppDelegate {
         let checkbox = NSButton(
             checkboxWithTitle: String(
                 localized: "dialog.sshURL.checkbox",
-                defaultValue: "I trust this SSH target and want cmux to connect."
+                defaultValue: "I trust this SSH target and want Regatta to connect."
             ),
             target: gate,
             action: #selector(CmuxSSHURLConfirmationGate.checkboxChanged(_:))
@@ -932,7 +932,7 @@ extension AppDelegate {
         alert.alertStyle = .critical
         alert.messageText = String(
             localized: "dialog.sshURL.blocked.title",
-            defaultValue: "cmux SSH Link Blocked"
+            defaultValue: "Regatta SSH Link Blocked"
         )
         alert.informativeText = cmuxSSHURLParseErrorMessage(error)
         alert.addButton(withTitle: String(localized: "dialog.sshURL.blocked.ok", defaultValue: "OK"))
@@ -947,7 +947,7 @@ extension AppDelegate {
             : String(localized: "dialog.textURL.rules.pasteFailed.title", defaultValue: "Couldn't Paste Rules Link")
         alert.informativeText = String(
             localized: "dialog.textURL.pasteFailed.message",
-            defaultValue: "cmux could not send the link text to a terminal."
+            defaultValue: "Regatta could not send the link text to a terminal."
         )
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         alert.runModal()
@@ -958,7 +958,7 @@ extension AppDelegate {
         alert.alertStyle = .critical
         alert.messageText = String(
             localized: "dialog.textURL.blocked.title",
-            defaultValue: "cmux Link Blocked"
+            defaultValue: "Regatta Link Blocked"
         )
         alert.informativeText = cmuxTextURLParseErrorMessage(error)
         alert.addButton(withTitle: String(localized: "dialog.textURL.blocked.ok", defaultValue: "OK"))
@@ -980,7 +980,7 @@ extension AppDelegate {
         case .destinationContainsUnsafeCharacters:
             return String(
                 localized: "dialog.sshURL.error.destinationContainsUnsafeCharacters",
-                defaultValue: "The SSH host or user contains unsupported or hidden characters, so cmux refused to use it."
+                defaultValue: "The SSH host or user contains unsupported or hidden characters, so Regatta refused to use it."
             )
         case .destinationStartsWithDash:
             return String(
@@ -995,7 +995,7 @@ extension AppDelegate {
         case .titleContainsUnsafeCharacters:
             return String(
                 localized: "dialog.sshURL.error.titleContainsControlCharacters",
-                defaultValue: "The workspace title contains hidden control or formatting characters, so cmux refused to use it."
+                defaultValue: "The workspace title contains hidden control or formatting characters, so Regatta refused to use it."
             )
         case .invalidPort:
             return String(
@@ -1060,7 +1060,7 @@ extension AppDelegate {
         case .textContainsUnsafeCharacters:
             return String(
                 localized: "dialog.textURL.error.textContainsUnsafeCharacters",
-                defaultValue: "The link text contains unsupported or hidden characters, so cmux refused to use it."
+                defaultValue: "The link text contains unsupported or hidden characters, so Regatta refused to use it."
             )
         case .nameTooLong(let maxLength):
             return String(
@@ -1070,7 +1070,7 @@ extension AppDelegate {
         case .nameContainsUnsafeCharacters:
             return String(
                 localized: "dialog.textURL.error.nameContainsUnsafeCharacters",
-                defaultValue: "The link name contains hidden control or formatting characters, so cmux refused to use it."
+                defaultValue: "The link name contains hidden control or formatting characters, so Regatta refused to use it."
             )
         case .titleTooLong(let maxLength):
             return String(
@@ -1080,7 +1080,7 @@ extension AppDelegate {
         case .titleContainsUnsafeCharacters:
             return String(
                 localized: "dialog.textURL.error.titleContainsUnsafeCharacters",
-                defaultValue: "The link title contains hidden control or formatting characters, so cmux refused to use it."
+                defaultValue: "The link title contains hidden control or formatting characters, so Regatta refused to use it."
             )
         case .invalidBooleanParameter(let parameter):
             return String(
@@ -1100,7 +1100,7 @@ extension AppDelegate {
         case .multipleLinks:
             return String(
                 localized: "dialog.textURL.error.multipleLinks",
-                defaultValue: "Only one cmux external link can be opened at a time."
+                defaultValue: "Only one Regatta external link can be opened at a time."
             )
         }
     }

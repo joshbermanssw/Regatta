@@ -97,7 +97,7 @@ struct NotificationsPage: View {
             Toggle(isOn: $forwardToPhone) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String(localized: "notifications.forwardToPhone.title", defaultValue: "Forward notifications to my iPhone"))
-                    Text(String(localized: "notifications.forwardToPhone.subtitle", defaultValue: "Send agent notifications to the cmux iPhone app. Off by default; nothing is uploaded unless this is on."))
+                    Text(String(localized: "notifications.forwardToPhone.subtitle", defaultValue: "Send agent notifications to the Regatta iPhone app. Off by default; nothing is uploaded unless this is on."))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
