@@ -6,7 +6,7 @@ struct RegattaFeatureFlag {
     /// UserDefaults key backing the Regatta feature flag.
     static let flagKey = "regatta.enabled"
     /// Default value when the user has not stored a preference.
-    static let defaultValue = false
+    static let defaultValue = true
 
     private let defaults: UserDefaults
 

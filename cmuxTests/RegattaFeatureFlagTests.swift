@@ -24,14 +24,25 @@ final class RegattaFeatureFlagTests: XCTestCase {
         super.tearDown()
     }
 
-    func testFlagDefaultsOff() {
+    func testFlagDefaultsOnWhenUnset() {
         let flag = RegattaFeatureFlag(defaults: testDefaults)
-        XCTAssertFalse(flag.isEnabled, "RegattaFeatureFlag should default to false when no value is stored")
+        XCTAssertTrue(flag.isEnabled, "RegattaFeatureFlag should default to true when no value is stored")
     }
 
     func testFlagReadsTrueWhenSet() {
         testDefaults.set(true, forKey: RegattaFeatureFlag.flagKey)
         let flag = RegattaFeatureFlag(defaults: testDefaults)
         XCTAssertTrue(flag.isEnabled, "RegattaFeatureFlag should return true when the key is set to true")
+    }
+
+    func testFlagRespectsExplicitOptOut() {
+        testDefaults.set(false, forKey: RegattaFeatureFlag.flagKey)
+        let flag = RegattaFeatureFlag(defaults: testDefaults)
+        XCTAssertFalse(flag.isEnabled, "RegattaFeatureFlag should return false when the user explicitly opts out")
+    }
+
+    func testAvailableModesIncludeRegattaByDefault() {
+        let modes = RightSidebarMode.availableModes(defaults: testDefaults)
+        XCTAssertTrue(modes.contains(.regatta), "Regatta should be an available right-sidebar mode by default")
     }
 }
