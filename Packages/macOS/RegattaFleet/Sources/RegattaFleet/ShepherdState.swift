@@ -26,6 +26,13 @@ public struct ShepherdState: Sendable, Equatable, Identifiable, FleetEntry {
     /// Empty until the first poll completes.
     public let reviewThreads: [ReviewThread]
 
+    /// The per-PR autonomy policy gating outward actions (push/reply/resolve).
+    ///
+    /// Defaults to ``AutonomyMode/staged`` for new handoffs (#32 safety policy).
+    /// The view layer reads this to render the mode toggle; flipping it routes
+    /// through the ``Fleet`` to the shared ``AutonomyGate``.
+    public let autonomyMode: AutonomyMode
+
     /// Stable Fleet identity, derived from the PR reference.
     public var id: String { pullRequest.id }
 
@@ -47,15 +54,19 @@ public struct ShepherdState: Sendable, Equatable, Identifiable, FleetEntry {
     ///   - phase: The polling lifecycle phase.
     ///   - checks: The latest CI check rollup. Defaults to empty.
     ///   - reviewThreads: The latest review threads. Defaults to empty.
+    ///   - autonomyMode: The per-PR autonomy policy. Defaults to
+    ///     ``AutonomyMode/staged`` (the #32 safety default for new handoffs).
     public init(
         pullRequest: PullRequestRef,
         phase: ShepherdPollPhase,
         checks: PRCheckSummary = PRCheckSummary(checks: []),
-        reviewThreads: [ReviewThread] = []
+        reviewThreads: [ReviewThread] = [],
+        autonomyMode: AutonomyMode = .staged
     ) {
         self.pullRequest = pullRequest
         self.phase = phase
         self.checks = checks
         self.reviewThreads = reviewThreads
+        self.autonomyMode = autonomyMode
     }
 }

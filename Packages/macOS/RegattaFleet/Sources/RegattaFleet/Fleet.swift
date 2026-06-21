@@ -26,9 +26,20 @@ public actor Fleet {
     private let makeWatcher: @Sendable (PullRequestRef) -> ShepherdWatcher
     private let autoStart: Bool
 
+    /// The per-PR autonomy safety gate (#32). All outward-facing actions are
+    /// submitted here; it executes them immediately (`.auto`) or holds them for
+    /// approval (`.staged`). The Fleet overlays each shepherd's current mode onto
+    /// the snapshots it emits so the UI can render the toggle.
+    public let autonomyGate: AutonomyGate
+
     private var watchers: [String: ShepherdWatcher] = [:]
     private var latest: [String: ShepherdState] = [:]
     private var fanoutTasks: [String: Task<Void, Never>] = [:]
+
+    /// A synchronous mirror of each PR's autonomy mode, kept in lockstep with
+    /// ``autonomyGate`` (the source of truth). Lets ``currentSnapshots()`` overlay
+    /// the mode without an `await` into the gate actor. Missing key ⇒ staged.
+    private var modes: [String: AutonomyMode] = [:]
 
     private var continuations: [UUID: AsyncStream<[ShepherdState]>.Continuation] = [:]
 
@@ -38,12 +49,17 @@ public actor Fleet {
     ///   - autoStart: Whether each new watcher's poll loop should start
     ///     immediately on handoff. Defaults to `true`. Tests pass `false` and
     ///     drive polls manually via the watcher returned from ``handoff(_:)``.
+    ///   - autonomyGate: The shared autonomy safety gate (#32). Defaults to a
+    ///     gate with the staged default and a no-op executor; #30/#31 inject a
+    ///     gate with a real push/reply/resolve executor.
     ///   - makeWatcher: Builds a ``ShepherdWatcher`` for a given PR reference.
     public init(
         autoStart: Bool = true,
+        autonomyGate: AutonomyGate = AutonomyGate(),
         makeWatcher: @escaping @Sendable (PullRequestRef) -> ShepherdWatcher
     ) {
         self.autoStart = autoStart
+        self.autonomyGate = autonomyGate
         self.makeWatcher = makeWatcher
     }
 
@@ -54,9 +70,11 @@ public actor Fleet {
     ///   - pollInterval: The interval passed to every watcher. Defaults to 30s.
     public init(
         poller: any PullRequestPolling = GitHubPoller(),
-        pollInterval: Duration = .seconds(30)
+        pollInterval: Duration = .seconds(30),
+        autonomyGate: AutonomyGate = AutonomyGate()
     ) {
         self.autoStart = true
+        self.autonomyGate = autonomyGate
         self.makeWatcher = { ref in
             ShepherdWatcher(pullRequest: ref, poller: poller, pollInterval: pollInterval)
         }
@@ -101,9 +119,26 @@ public actor Fleet {
     }
 
     /// The current list of shepherd snapshots, ordered by PR identity for stable
-    /// rendering.
+    /// rendering. Each snapshot carries the PR's current ``AutonomyMode`` overlaid
+    /// from the Fleet's mode mirror.
     public func currentSnapshots() -> [ShepherdState] {
-        latest.values.sorted { $0.id < $1.id }
+        latest.values
+            .map { overlayMode($0) }
+            .sorted { $0.id < $1.id }
+    }
+
+    /// The current autonomy mode for a PR (staged unless explicitly changed).
+    public func autonomyMode(for pullRequest: PullRequestRef) -> AutonomyMode {
+        modes[pullRequest.id] ?? .staged
+    }
+
+    /// Sets a PR's autonomy mode. Changeable at any time. Updates both the gate
+    /// (source of truth) and the Fleet's synchronous mirror, then re-emits so the
+    /// UI reflects the new mode.
+    public func setAutonomyMode(_ mode: AutonomyMode, for pullRequest: PullRequestRef) async {
+        modes[pullRequest.id] = mode
+        await autonomyGate.setMode(mode, for: pullRequest)
+        emit()
     }
 
     /// Removes (and stops) the shepherd for a PR, if present.
@@ -114,6 +149,7 @@ public actor Fleet {
         await watcher.stop()
         watchers[pullRequest.id] = nil
         latest[pullRequest.id] = nil
+        modes[pullRequest.id] = nil
         emit()
     }
 
@@ -135,6 +171,21 @@ public actor Fleet {
     private func absorb(_ state: ShepherdState) {
         latest[state.id] = state
         emit()
+    }
+
+    /// Returns the state with the PR's current autonomy mode applied. The watcher
+    /// is mode-agnostic and always publishes the staged default; the Fleet is the
+    /// authority for the mode, so it overlays it here.
+    private func overlayMode(_ state: ShepherdState) -> ShepherdState {
+        let mode = modes[state.id] ?? .staged
+        guard state.autonomyMode != mode else { return state }
+        return ShepherdState(
+            pullRequest: state.pullRequest,
+            phase: state.phase,
+            checks: state.checks,
+            reviewThreads: state.reviewThreads,
+            autonomyMode: mode
+        )
     }
 
     private func emit() {

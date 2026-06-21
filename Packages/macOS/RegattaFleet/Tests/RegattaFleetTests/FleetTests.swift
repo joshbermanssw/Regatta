@@ -96,6 +96,42 @@ struct FleetTests {
         #expect(await fleet.contains(pr) == false)
     }
 
+    @Test("a new handoff defaults to staged autonomy mode")
+    func handoffDefaultsToStaged() async {
+        let fleet = makeFleet(FakePullRequestPoller())
+        await fleet.handoff(pr)
+
+        #expect(await fleet.autonomyMode(for: pr) == .staged)
+        let snapshot = await fleet.currentSnapshots().first
+        #expect(snapshot?.autonomyMode == .staged)
+    }
+
+    @Test("setting a PR's autonomy mode updates the snapshot and the gate")
+    func setAutonomyModeUpdatesSnapshotAndGate() async {
+        let fleet = makeFleet(FakePullRequestPoller())
+        await fleet.handoff(pr)
+
+        await fleet.setAutonomyMode(.auto, for: pr)
+
+        #expect(await fleet.autonomyMode(for: pr) == .auto)
+        let snapshot = await fleet.currentSnapshots().first
+        #expect(snapshot?.autonomyMode == .auto)
+        #expect(await fleet.autonomyGate.mode(for: pr) == .auto)
+    }
+
+    @Test("autonomy mode is isolated per shepherd")
+    func autonomyModeIsPerPR() async {
+        let fleet = makeFleet(FakePullRequestPoller())
+        let other = PullRequestRef(owner: "manaflow-ai", repo: "cmux", number: 99)
+        await fleet.handoff(pr)
+        await fleet.handoff(other)
+
+        await fleet.setAutonomyMode(.auto, for: pr)
+
+        #expect(await fleet.autonomyMode(for: pr) == .auto)
+        #expect(await fleet.autonomyMode(for: other) == .staged)
+    }
+
     @Test("snapshots() replays the current shepherd list to a new subscriber")
     func snapshotsReplays() async {
         let poller = FakePullRequestPoller()

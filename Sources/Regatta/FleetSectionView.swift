@@ -1,278 +1,349 @@
 import SwiftUI
-import RegattaCore
+import Foundation
+import RegattaFleet
+import RegattaGitHub
 
 // MARK: - FleetSectionView
 
-/// The Fleet rail section: a live list of brain-spawned workers, each with a
-/// name, a status dot, and a cancel button while it is still running.
+/// The Fleet rail section: a "hand to Regatta" action plus the list of
+/// persistent PR shepherd watchers, driven by ``RegattaFleetViewModel``.
+///
+/// ## Handoff
+/// When the active tab is attached to a PR, the header shows a "Hand to Regatta"
+/// button. Tapping it resolves the PR from the injected `contextProvider` and
+/// hands it off to the ``Fleet``, creating a persistent shepherd. Handing the
+/// same PR off again is idempotent (no duplicate).
 ///
 /// ## Snapshot-boundary rule (CLAUDE.md)
-/// Rows inside `ForEach` receive **value snapshots** (``Worker`` is a `struct`)
-/// plus a cancel closure. No `@Observable` view-model reference is captured inside
-/// the `LazyVStack` / `ForEach` closures: the view-model is read once at this
-/// level into local `let` constants before entering the lazy boundary.
+/// `shepherds` is read from the `@Observable` view-model at this level and
+/// passed as **value snapshots** (`ShepherdState` is a `struct`) into
+/// ``ShepherdRow`` — no view-model or `Fleet` reference escapes the `ForEach`.
 ///
 /// ## No state mutation in body
-/// `startObserving()` runs in `.onAppear`, never in a `body`-computed property.
+/// The handoff is triggered only from a `Button` action; the `contextProvider`
+/// closure is never called from `body`.
 struct FleetSectionView: View {
     let viewModel: RegattaFleetViewModel
-
-    /// Summons the worker-terminal grid overlay over the main work area (issue #17).
-    /// Captured once at this level so the action closure passed into rows holds no
-    /// `@Observable` reference (snapshot-boundary rule).
-    private let onSummon: () -> Void = { RegattaSummonManager.shared.summon() }
+    /// Returns the active workspace context (incl. its PR) when the handoff
+    /// button is tapped. `@MainActor`-isolated because the source of truth
+    /// (`TabManager.selectedWorkspace`) is main-actor-bound. `nil` disables the
+    /// handoff affordance.
+    let contextProvider: (@MainActor () -> AttachedTabContext?)?
 
     var body: some View {
-        // Capture the snapshot at this level — no @Observable read inside ForEach.
-        let snapshots: [Worker] = viewModel.workers
-        let summon = onSummon
-
-        return VStack(spacing: 0) {
-            FleetConcurrencyCapRow()
-            if snapshots.isEmpty {
-                emptyView
-            } else {
-                workerList(snapshots, summon: summon)
-            }
-            summonRow(summon)
+        VStack(alignment: .leading, spacing: 0) {
+            handoffButton
+            shepherdList
         }
         .frame(maxWidth: .infinity)
         .onAppear {
-            viewModel.startObserving()
+            viewModel.observe()
         }
     }
 
-    // MARK: - Summon control
+    // MARK: - Handoff button
 
-    /// A full-width control that opens the worker-terminal grid overlay.
-    private func summonRow(_ summon: @escaping () -> Void) -> some View {
-        Button(action: summon) {
-            HStack(spacing: 6) {
-                Image(systemName: "rectangle.grid.2x2")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Text(String(localized: "regatta.summon.open", defaultValue: "Open Fleet grid"))
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
+    @ViewBuilder
+    private var handoffButton: some View {
+        if contextProvider != nil {
+            Button {
+                handoffActiveTab()
+            } label: {
+                Label(
+                    String(localized: "fleet.handoff.label", defaultValue: "Hand PR to Regatta"),
+                    systemImage: "sailboat.fill"
+                )
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .buttonStyle(.plain)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .contentShape(Rectangle())
+            .accessibilityIdentifier("FleetHandoffButton")
+            .accessibilityLabel(
+                String(localized: "fleet.handoff.a11y", defaultValue: "Hand the active tab's pull request to Regatta")
+            )
+            .help(String(localized: "fleet.handoff.tooltip", defaultValue: "Create a persistent shepherd that watches this PR's CI and reviews"))
         }
-        .buttonStyle(.plain)
-        .help(String(localized: "regatta.summon.open.help", defaultValue: "Open the worker terminal grid"))
-        .accessibilityIdentifier("RegattaSummonOpenButton")
     }
 
-    // MARK: - Empty
+    // MARK: - Shepherd list
+
+    /// The list of persistent shepherds.
+    ///
+    /// Snapshot-boundary: `snapshots` is captured here (before the `ForEach`) as
+    /// an immutable value array. Rows receive `ShepherdState` value copies only.
+    private var shepherdList: some View {
+        // Snapshot-boundary: capture immutable value snapshots BEFORE the
+        // `ForEach`. Rows receive value copies + closures only — no view-model or
+        // `Fleet`/`AutonomyGate` reference escapes into the list subtree.
+        let snapshots: [ShepherdState] = viewModel.shepherds
+        let pending: [PendingAction] = viewModel.pendingActions
+
+        return Group {
+            if snapshots.isEmpty {
+                emptyView
+            } else {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(snapshots) { shepherd in
+                        let prID = shepherd.pullRequest.id
+                        ShepherdRow(
+                            state: shepherd,
+                            pending: pending.filter { $0.pullRequest.id == prID },
+                            actions: ShepherdRowActions(
+                                onDismiss: { dismiss(shepherd.pullRequest) },
+                                onSetMode: { mode in setMode(mode, for: shepherd.pullRequest) },
+                                onApprove: { id in approve(id) },
+                                onReject: { id in reject(id) }
+                            )
+                        )
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
 
     private var emptyView: some View {
+        Text(String(localized: "fleet.empty", defaultValue: "No shepherds yet"))
+            .font(.system(size: 11))
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+    }
+
+    // MARK: - Actions
+
+    /// Resolves the active tab's PR and hands it off. Called only from a button.
+    private func handoffActiveTab() {
+        guard
+            let ctx = contextProvider?(),
+            let pr = ctx.pullRequest,
+            let ref = PullRequestRef.parse(label: pr.label, number: pr.number)
+        else { return }
+        viewModel.handoff(ref)
+    }
+
+    private func dismiss(_ ref: PullRequestRef) {
+        viewModel.dismiss(ref)
+    }
+
+    private func setMode(_ mode: AutonomyMode, for ref: PullRequestRef) {
+        viewModel.setAutonomyMode(mode, for: ref)
+    }
+
+    private func approve(_ id: UUID) {
+        viewModel.approve(id)
+    }
+
+    private func reject(_ id: UUID) {
+        viewModel.reject(id)
+    }
+}
+
+// MARK: - ShepherdRowActions
+
+/// The closure bundle passed to a ``ShepherdRow``. Keeps the snapshot-boundary
+/// contract: rows hold value snapshots + this bundle of actions, never a store
+/// reference.
+private struct ShepherdRowActions {
+    let onDismiss: () -> Void
+    let onSetMode: (AutonomyMode) -> Void
+    let onApprove: (UUID) -> Void
+    let onReject: (UUID) -> Void
+}
+
+// MARK: - ShepherdRow
+
+/// A single shepherd row. Receives a `ShepherdState` **value snapshot** — no
+/// view-model / `Fleet` reference is held (snapshot-boundary rule).
+private struct ShepherdRow: View {
+    let state: ShepherdState
+    /// The pending actions for this shepherd's PR (staged mode). Value snapshots.
+    let pending: [PendingAction]
+    let actions: ShepherdRowActions
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(String(localized: "regatta.fleet.empty.title", defaultValue: "No workers yet"))
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-            Text(String(localized: "regatta.fleet.empty.body", defaultValue: "Workers spawned by the brain will appear here."))
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-    }
-
-    // MARK: - List
-
-    /// The worker list. Snapshot-boundary: `snapshots` and the per-row cancel
-    /// closure are the only things crossing into the lazy rows.
-    private func workerList(_ snapshots: [Worker], summon: @escaping () -> Void) -> some View {
-        LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(snapshots) { worker in
-                WorkerRow(
-                    worker: worker,
-                    onCancel: { viewModel.cancelWorker(worker.id) },
-                    onSummon: summon
-                )
+            headerRow
+            autonomyControl
+            if !pending.isEmpty {
+                pendingApprovals
             }
         }
-        .padding(.vertical, 4)
-    }
-}
-
-// MARK: - FleetConcurrencyCapRow
-
-/// A stepper row controlling the Fleet concurrency cap — the maximum number of
-/// workers allowed to run at once before the rest are held ``WorkerStatus/queued``
-/// (issue #18).
-///
-/// Bound to `regatta.maxConcurrentWorkers` in `UserDefaults` via `@AppStorage`, the
-/// same key the settings file store writes from `~/.config/cmux/cmux.json`. Editing
-/// it here updates that value; ``RegattaFleetManager`` observes the change and
-/// pushes the new cap into the orchestrator live (promoting queued workers when
-/// raised, holding new spawns when lowered). This row sits **above** the worker
-/// `LazyVStack`, so it holds no store reference inside the list snapshot boundary.
-private struct FleetConcurrencyCapRow: View {
-    @AppStorage(RegattaConcurrencySettings.maxConcurrentWorkersKey)
-    private var cap: Int = RegattaConcurrencySettings.defaultMaxConcurrentWorkers
-
-    private var clampedCap: Int { RegattaConcurrencySettings.clamp(cap) }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(String(localized: "regatta.fleet.cap.label", defaultValue: "Max concurrent"))
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 4)
-            Stepper(
-                value: $cap,
-                in: RegattaConcurrencySettings.minimumMaxConcurrentWorkers
-                    ... RegattaConcurrencySettings.maximumMaxConcurrentWorkers
-            ) {
-                Text("\(clampedCap)")
-                    .font(.system(size: 11, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(.primary)
-            }
-            .labelsHidden()
-            .controlSize(.small)
-        }
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            String.localizedStringWithFormat(
-                String(
-                    localized: "regatta.fleet.cap.a11y",
-                    defaultValue: "Maximum concurrent workers, %lld"
-                ),
-                clampedCap
-            )
-        )
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
     }
-}
 
-// MARK: - WorkerRow
+    // MARK: - Header
 
-/// A single Fleet worker row. Receives a ``Worker`` **value snapshot** plus a
-/// cancel closure — no `@Observable` / orchestrator reference held
-/// (snapshot-boundary rule).
-private struct WorkerRow: View {
-    let worker: Worker
-    let onCancel: () -> Void
-    /// Opens the worker-terminal grid overlay (issue #17). A clicked worker row
-    /// summons the grid filling the main work area.
-    let onSummon: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
+    private var headerRow: some View {
+        HStack(spacing: 6) {
             statusDot
             VStack(alignment: .leading, spacing: 1) {
-                Text(worker.name)
-                    .font(.system(size: 12))
+                Text(state.title)
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                    .truncationMode(.tail)
-                HStack(spacing: 4) {
-                    providerBadge
-                    Text(statusLabel)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+                Text(detailLine)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             Spacer(minLength: 4)
-            if worker.status.isCancellable {
-                cancelButton
+            Button(action: actions.onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                String(localized: "fleet.shepherd.dismiss.a11y", defaultValue: "Dismiss shepherd")
+            )
+        }
+    }
+
+    // MARK: - Autonomy toggle
+
+    /// The per-PR autonomy mode picker: stage-for-approval vs auto-push & resolve.
+    /// Changeable at any time; the current mode is always visible.
+    private var autonomyControl: some View {
+        Picker(
+            selection: Binding(
+                get: { state.autonomyMode },
+                set: { actions.onSetMode($0) }
+            )
+        ) {
+            Text(String(localized: "fleet.autonomy.staged", defaultValue: "Stage for approval"))
+                .tag(AutonomyMode.staged)
+            Text(String(localized: "fleet.autonomy.auto", defaultValue: "Auto-push & resolve"))
+                .tag(AutonomyMode.auto)
+        } label: {
+            Text(String(localized: "fleet.autonomy.label", defaultValue: "Autonomy"))
+        }
+        .pickerStyle(.menu)
+        .controlSize(.mini)
+        .labelsHidden()
+        .font(.system(size: 10))
+        .accessibilityIdentifier("FleetAutonomyPicker")
+        .accessibilityLabel(
+            String(localized: "fleet.autonomy.a11y", defaultValue: "Autonomy mode for this pull request")
+        )
+        .help(String(
+            localized: "fleet.autonomy.tooltip",
+            defaultValue: "Stage holds push/reply/resolve for your approval; Auto runs them immediately"
+        ))
+    }
+
+    // MARK: - Pending approvals
+
+    /// The queue of actions awaiting approval in staged mode, each with an
+    /// approve/reject pair.
+    private var pendingApprovals: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(pending) { action in
+                HStack(spacing: 6) {
+                    Image(systemName: icon(for: action.kind))
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                    Text(action.summary)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Button {
+                        actions.onApprove(action.id)
+                    } label: {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.green)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        String(localized: "fleet.pending.approve.a11y", defaultValue: "Approve action")
+                    )
+                    Button {
+                        actions.onReject(action.id)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        String(localized: "fleet.pending.reject.a11y", defaultValue: "Reject action")
+                    )
+                }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSummon)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(
-            String.localizedStringWithFormat(
-                String(localized: "regatta.fleet.worker.a11y", defaultValue: "Worker %@, %@, %@"),
-                worker.name,
-                worker.providerID.displayName,
-                statusLabel
-            )
-        )
+        .padding(.leading, 13)
     }
 
-    // MARK: Provider badge
-
-    /// A small badge naming the worker's CLI agent provider (issue #36). The
-    /// provider name is a product brand name (e.g. "Claude Code", "Codex",
-    /// "Gemini") shown verbatim and not translated.
-    private var providerBadge: some View {
-        Text(worker.providerID.displayName)
-            .font(.system(size: 9, weight: .medium))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 1)
-            .background(
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(.quaternary)
-            )
-            .lineLimit(1)
-            .fixedSize()
+    private func icon(for kind: ActionKind) -> String {
+        switch kind {
+        case .push: return "arrow.up.circle"
+        case .reply: return "arrowshape.turn.up.left"
+        case .resolve: return "checkmark.bubble"
+        }
     }
 
-    // MARK: Status dot
-
+    /// A coloured dot summarising the shepherd's current health.
     private var statusDot: some View {
         Circle()
-            .fill(statusColor)
-            .frame(width: 8, height: 8)
-            .accessibilityHidden(true)
+            .fill(dotColor)
+            .frame(width: 7, height: 7)
     }
 
-    private var statusColor: Color {
-        switch worker.status {
-        case .queued:    return .secondary
-        case .running:   return .blue
-        case .done:      return .green
-        case .failed:    return .red
-        case .cancelled: return .orange
+    private var dotColor: Color {
+        switch state.phase {
+        case .starting:
+            return .gray
+        case .failed:
+            return .yellow
+        case .watching:
+            if state.checks.anyFailed { return .red }
+            if state.checks.allSucceeded { return .green }
+            return .blue // pending / in-progress
         }
     }
 
-    private var statusLabel: String {
-        switch worker.status {
-        case .queued:
-            return String(localized: "regatta.fleet.status.queued", defaultValue: "Queued")
-        case .running:
-            return String(localized: "regatta.fleet.status.running", defaultValue: "Running")
-        case .done:
-            return String(localized: "regatta.fleet.status.done", defaultValue: "Done")
+    /// The secondary line: CI summary + unresolved-thread count, or the phase.
+    private var detailLine: String {
+        switch state.phase {
+        case .starting:
+            return String(localized: "fleet.shepherd.starting", defaultValue: "Starting…")
         case .failed(let reason):
-            return String.localizedStringWithFormat(
-                String(localized: "regatta.fleet.status.failed", defaultValue: "Failed: %@"),
+            return String(
+                format: String(localized: "fleet.shepherd.failed", defaultValue: "Poll failed: %@"),
                 reason
             )
-        case .cancelled:
-            return String(localized: "regatta.fleet.status.cancelled", defaultValue: "Cancelled")
+        case .watching:
+            return watchingDetail
         }
     }
 
-    // MARK: Cancel button
-
-    private var cancelButton: some View {
-        Button(action: onCancel) {
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 12))
-                .foregroundStyle(.tertiary)
+    private var watchingDetail: String {
+        let checks = state.checks
+        let ci: String
+        if checks.checks.isEmpty {
+            ci = String(localized: "fleet.shepherd.ci.none", defaultValue: "No checks")
+        } else if checks.anyFailed {
+            ci = String(localized: "fleet.shepherd.ci.failing", defaultValue: "CI failing")
+        } else if checks.allSucceeded {
+            ci = String(localized: "fleet.shepherd.ci.passing", defaultValue: "CI passing")
+        } else {
+            ci = String(localized: "fleet.shepherd.ci.pending", defaultValue: "CI running")
         }
-        .buttonStyle(.plain)
-        .help(String(localized: "regatta.fleet.cancel.help", defaultValue: "Cancel worker"))
-        .accessibilityLabel(
-            String.localizedStringWithFormat(
-                String(localized: "regatta.fleet.cancel.a11y", defaultValue: "Cancel worker %@"),
-                worker.name
-            )
+
+        let threads = state.unresolvedThreadCount
+        guard threads > 0 else { return ci }
+        let threadText = String(
+            format: String(localized: "fleet.shepherd.threads", defaultValue: "%lld open threads"),
+            threads
         )
+        return "\(ci) · \(threadText)"
     }
 }

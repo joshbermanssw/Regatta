@@ -27,6 +27,10 @@ final class RegattaFleetViewModel {
     /// Value snapshots only — safe to feed into list rows directly.
     private(set) var shepherds: [ShepherdState] = []
 
+    /// The actions awaiting the user's approve/reject decision (staged mode),
+    /// across all shepherds. Value snapshots only.
+    private(set) var pendingActions: [PendingAction] = []
+
     // MARK: - Private non-observable
 
     /// The app-lifetime Fleet. `@ObservationIgnored` — a resource handle, not
@@ -50,7 +54,12 @@ final class RegattaFleetViewModel {
 
     // MARK: - Public API
 
-    /// Begins consuming the Fleet's snapshot stream. Idempotent.
+    /// The task consuming the autonomy gate's pending-action stream.
+    @ObservationIgnored
+    private var pendingTask: Task<Void, Never>?
+
+    /// Begins consuming the Fleet's snapshot stream and the autonomy gate's
+    /// pending-action stream. Idempotent.
     func observe() {
         guard observeTask == nil else { return }
         observeTask = Task { [weak self] in
@@ -61,6 +70,29 @@ final class RegattaFleetViewModel {
                 self.shepherds = snapshot
             }
         }
+        pendingTask = Task { [weak self] in
+            guard let self else { return }
+            let stream = await self.fleet.autonomyGate.pendingActions()
+            for await actions in stream {
+                guard !Task.isCancelled else { break }
+                self.pendingActions = actions
+            }
+        }
+    }
+
+    /// Sets a PR's autonomy mode. Per-PR; changeable at any time.
+    func setAutonomyMode(_ mode: AutonomyMode, for pullRequest: PullRequestRef) {
+        Task { await fleet.setAutonomyMode(mode, for: pullRequest) }
+    }
+
+    /// Approves a pending action (executes it through the gate's executor).
+    func approve(_ id: UUID) {
+        Task { await fleet.autonomyGate.approve(id) }
+    }
+
+    /// Rejects a pending action (drops it without executing).
+    func reject(_ id: UUID) {
+        Task { await fleet.autonomyGate.reject(id) }
     }
 
     /// Hands a pull request off to the Fleet, creating a persistent shepherd and
@@ -77,9 +109,11 @@ final class RegattaFleetViewModel {
         Task { await fleet.dismiss(pullRequest) }
     }
 
-    /// Stops observing and releases the consuming task. Idempotent.
+    /// Stops observing and releases the consuming tasks. Idempotent.
     func shutdown() {
         observeTask?.cancel()
         observeTask = nil
+        pendingTask?.cancel()
+        pendingTask = nil
     }
 }
