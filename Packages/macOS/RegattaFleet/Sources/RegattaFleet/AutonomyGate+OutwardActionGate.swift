@@ -24,21 +24,43 @@ import RegattaGitHub
 extension AutonomyGate: OutwardActionGate {
     /// Submits the outward action to the autonomy gate and maps the gate's
     /// ``SubmitResult`` to an ``OutwardActionVerdict``.
-    public func authorize(_ action: OutwardAction) async -> OutwardActionVerdict {
+    public func authorize(_ action: OutwardAction, for pullRequest: PullRequestRef) async -> OutwardActionVerdict {
+        let pending: PendingAction
         switch action {
-        case let .pushFix(pullRequest, branch):
-            let pending = PendingAction(
+        case let .pushFix(_, branch):
+            pending = PendingAction(
                 pullRequest: pullRequest,
                 kind: .push,
                 summary: "Push ci-fix commits to \(branch)",
                 payload: ActionPayload(fields: ["branch": branch])
             )
-            switch await submit(pending) {
-            case .executed:
-                return .allowed
-            case .enqueued, .executionFailed:
-                return .denied
-            }
+        case let .pushCodeChange(threadID):
+            pending = PendingAction(
+                pullRequest: pullRequest,
+                kind: .push,
+                summary: "Push code change for thread \(threadID)",
+                payload: ActionPayload(fields: ["threadID": threadID])
+            )
+        case let .replyToThread(threadID, body):
+            pending = PendingAction(
+                pullRequest: pullRequest,
+                kind: .reply,
+                summary: "Reply to review thread \(threadID)",
+                payload: ActionPayload(fields: ["threadID": threadID, "body": body])
+            )
+        case let .resolveThread(threadID):
+            pending = PendingAction(
+                pullRequest: pullRequest,
+                kind: .resolve,
+                summary: "Resolve review thread \(threadID)",
+                payload: ActionPayload(fields: ["threadID": threadID])
+            )
+        }
+        switch await submit(pending) {
+        case .executed:
+            return .allowed
+        case .enqueued, .executionFailed:
+            return .denied
         }
     }
 }

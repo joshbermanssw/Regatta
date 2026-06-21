@@ -109,6 +109,62 @@ public actor GitHubPoller {
         return try parseReviewThreads(from: json)
     }
 
+    // MARK: - Review-thread writes
+
+    /// Posts a reply to an existing review thread.
+    ///
+    /// Issues the `addPullRequestReviewThreadReply` GraphQL mutation via:
+    /// ```
+    /// gh api graphql -f query='...' -f threadId=... -f body=...
+    /// ```
+    /// Passing `threadId` and `body` as separate `-f` variables keeps arbitrary
+    /// reply text out of the query string, so a body containing quotes, braces,
+    /// or GraphQL syntax cannot break the request.
+    ///
+    /// - Parameters:
+    ///   - threadID: The GitHub node ID of the review thread to reply to.
+    ///   - body: The markdown body of the reply.
+    /// - Throws: ``GitHubCommandError`` when the command fails.
+    public func replyToReviewThread(threadID: String, body: String) async throws {
+        let mutation = """
+        mutation($threadId: ID!, $body: String!) {
+          addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $threadId, body: $body }) {
+            comment { id }
+          }
+        }
+        """
+        _ = try await commandRunner.run([
+            "api", "graphql",
+            "-f", "query=\(mutation)",
+            "-f", "threadId=\(threadID)",
+            "-f", "body=\(body)",
+        ])
+    }
+
+    /// Marks a review thread as resolved.
+    ///
+    /// Issues the `resolveReviewThread` GraphQL mutation via:
+    /// ```
+    /// gh api graphql -f query='...' -f threadId=...
+    /// ```
+    ///
+    /// - Parameter threadID: The GitHub node ID of the review thread to resolve.
+    /// - Throws: ``GitHubCommandError`` when the command fails.
+    public func resolveReviewThread(threadID: String) async throws {
+        let mutation = """
+        mutation($threadId: ID!) {
+          resolveReviewThread(input: { threadId: $threadId }) {
+            thread { id isResolved }
+          }
+        }
+        """
+        _ = try await commandRunner.run([
+            "api", "graphql",
+            "-f", "query=\(mutation)",
+            "-f", "threadId=\(threadID)",
+        ])
+    }
+
     // MARK: - Private helpers
 
     private func reviewThreadsQuery(owner: String, repo: String, prNumber: Int) -> String {

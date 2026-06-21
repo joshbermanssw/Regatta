@@ -149,7 +149,8 @@ public actor CIFixReactor {
             let producedFix = await worker.attemptFix()
             if producedFix {
                 let verdict = await gate.authorize(
-                    .pushFix(pullRequest: pullRequest, branch: spec.branch)
+                    .pushFix(pullRequest: pullRequest, branch: spec.branch),
+                    for: pullRequest
                 )
                 if verdict == .denied {
                     return .needsAttention(reason: "Push blocked by autonomy gate")

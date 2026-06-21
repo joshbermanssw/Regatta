@@ -22,7 +22,7 @@ final class StubOutwardActionGate: OutwardActionGate, @unchecked Sendable {
     /// Number of authorize calls.
     var requestCount: Int { lock.withLock { _requested.count } }
 
-    func authorize(_ action: OutwardAction) async -> OutwardActionVerdict {
+    func authorize(_ action: OutwardAction, for pullRequest: PullRequestRef) async -> OutwardActionVerdict {
         lock.withLock { _requested.append(action) }
         return verdict
     }
