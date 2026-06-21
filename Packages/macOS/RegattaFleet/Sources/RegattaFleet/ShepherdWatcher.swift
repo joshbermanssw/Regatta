@@ -28,9 +28,15 @@ public actor ShepherdWatcher {
     private let pullRequest: PullRequestRef
     private let poller: any PullRequestPolling
     private let pollInterval: Duration
+    private let maxBackoff: Duration
 
     private var current: ShepherdState
     private var loopTask: Task<Void, Never>?
+
+    /// The current backoff streak. Each consecutive pause-worthy failure
+    /// (auth/rate-limit) doubles the delay; a successful poll resets it. Drives
+    /// the exponential backoff the loop sleeps for while paused (issue #35).
+    private var consecutivePauses = 0
 
     /// Live subscribers' continuations, keyed by a token so they can be removed
     /// when their stream terminates.
@@ -43,14 +49,18 @@ public actor ShepherdWatcher {
     ///   - poller: The polling seam; inject ``GitHubPoller`` in production or a
     ///     fake in tests.
     ///   - pollInterval: How long to wait between poll cycles. Defaults to 30s.
+    ///   - maxBackoff: The ceiling on the exponential backoff applied after
+    ///     consecutive auth/rate-limit failures. Defaults to 15 minutes.
     public init(
         pullRequest: PullRequestRef,
         poller: any PullRequestPolling,
-        pollInterval: Duration = .seconds(30)
+        pollInterval: Duration = .seconds(30),
+        maxBackoff: Duration = .seconds(900)
     ) {
         self.pullRequest = pullRequest
         self.poller = poller
         self.pollInterval = pollInterval
+        self.maxBackoff = maxBackoff
         self.current = ShepherdState(pullRequest: pullRequest, phase: .starting)
     }
 
@@ -81,9 +91,13 @@ public actor ShepherdWatcher {
             guard let self else { return }
             while !Task.isCancelled {
                 await self.pollOnce()
+                // When the shepherd paused after an auth/rate-limit failure it
+                // sleeps for the (exponentially growing) backoff instead of the
+                // normal interval before retrying (issue #35).
+                let delay = await self.nextDelay()
                 do {
                     // Bounded, cancellable interval between polls (delay carve-out).
-                    try await Task.sleep(for: self.pollInterval)
+                    try await Task.sleep(for: delay)
                 } catch {
                     break // cancelled
                 }
@@ -104,6 +118,8 @@ public actor ShepherdWatcher {
             let threads = try await poller.fetchReviewThreads(
                 owner: pullRequest.owner, repo: pullRequest.repo, prNumber: pullRequest.number
             )
+            // A clean poll clears any backoff streak.
+            consecutivePauses = 0
             publish(ShepherdState(
                 pullRequest: pullRequest,
                 phase: .watching,
@@ -111,7 +127,11 @@ public actor ShepherdWatcher {
                 reviewThreads: threads
             ))
         } catch {
-            // Preserve last good data; only the phase reflects the failure.
+            // NOTE(#35, commit 1): every poll failure — including gh auth and
+            // rate-limit — is treated as a flat `.failed` with no pause/backoff.
+            // Commit 2 pauses + backs off on auth/rate-limit. This is the bug the
+            // regression test catches.
+            consecutivePauses = 0
             publish(ShepherdState(
                 pullRequest: pullRequest,
                 phase: .failed(Self.describe(error)),
@@ -119,6 +139,23 @@ public actor ShepherdWatcher {
                 reviewThreads: current.reviewThreads
             ))
         }
+    }
+
+    /// The delay to sleep before the next poll: the backoff while paused, else the
+    /// normal interval.
+    private func nextDelay() -> Duration {
+        if case .paused(_, let retryAfter) = current.phase {
+            return retryAfter
+        }
+        return pollInterval
+    }
+
+    /// Exponential backoff: `pollInterval × 2^(streak-1)`, clamped to ``maxBackoff``.
+    private func backoffDelay(for streak: Int) -> Duration {
+        guard streak > 0 else { return pollInterval }
+        let multiplier = 1 << min(streak - 1, 16)
+        let scaled = pollInterval * multiplier
+        return scaled < maxBackoff ? scaled : maxBackoff
     }
 
     /// Stops the poll loop and finishes all subscriber streams. Idempotent.

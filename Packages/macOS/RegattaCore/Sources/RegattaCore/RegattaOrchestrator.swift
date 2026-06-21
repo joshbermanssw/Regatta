@@ -49,6 +49,13 @@ public actor RegattaOrchestrator {
         var paneID: PaneHandle.ID?
         /// The task observing the worker's output stream, cancelled on shutdown.
         var observeTask: Task<Void, Never>?
+        /// The worker's captured stdout/stderr in arrival order, retained across
+        /// the run so a crashed worker's output is preserved and handed to the
+        /// brain on completion (issue #35).
+        var output: String = ""
+        /// Whether the brain has already been notified that this worker reached a
+        /// terminal status, so the notification fires exactly once.
+        var notified: Bool = false
     }
 
     // MARK: - State
@@ -74,6 +81,11 @@ public actor RegattaOrchestrator {
     private let worktreeManager: RegattaWorktreeManager
     private let paneBridge: any PaneBridge
 
+    /// The brain (or test double) notified once when a worker reaches a terminal
+    /// status, with the worker's retained output attached (issue #35). `nil` when
+    /// no observer is wired.
+    private let workerObserver: (any WorkerObserver)?
+
     // MARK: - Init
 
     /// Creates an orchestrator.
@@ -84,14 +96,19 @@ public actor RegattaOrchestrator {
     ///   - maxConcurrentWorkers: The cap on simultaneously running workers; excess
     ///     spawns are held ``WorkerStatus/queued`` until a slot frees. Clamped to a
     ///     minimum of `1`. Defaults to ``defaultMaxConcurrentWorkers``.
+    ///   - workerObserver: An optional sink notified once per worker when it
+    ///     reaches a terminal status, with the worker's retained output (issue
+    ///     #35). The brain conforms to ``WorkerObserver`` so it learns of crashes.
     public init(
         worktreeManager: RegattaWorktreeManager,
         paneBridge: any PaneBridge,
-        maxConcurrentWorkers: Int = RegattaOrchestrator.defaultMaxConcurrentWorkers
+        maxConcurrentWorkers: Int = RegattaOrchestrator.defaultMaxConcurrentWorkers,
+        workerObserver: (any WorkerObserver)? = nil
     ) {
         self.worktreeManager = worktreeManager
         self.paneBridge = paneBridge
         self.maxConcurrentWorkers = max(1, maxConcurrentWorkers)
+        self.workerObserver = workerObserver
     }
 
     // MARK: - Concurrency cap
@@ -152,7 +169,22 @@ public actor RegattaOrchestrator {
     /// - Returns: The new worker's stable ID, usable with ``cancelWorker(_:)``.
     @discardableResult
     public func spawnWorker(_ spec: WorkerSpec) -> UUID {
-        let id = UUID()
+        registerAndSchedule(spec, id: UUID())
+    }
+
+    /// Test seam: spawns a worker with a caller-supplied id so a test can
+    /// pre-provision a colliding worktree on the branch the orchestrator will
+    /// derive from that id (issue #35 worktree-conflict path). Not part of the
+    /// public API — `internal` so only `@testable` test code can reach it.
+    @discardableResult
+    func spawnWorkerForTest(_ spec: WorkerSpec, forcedID id: UUID) -> UUID {
+        registerAndSchedule(spec, id: id)
+    }
+
+    /// Registers a worker record under `id` and runs the scheduler. Shared by the
+    /// public spawn and the test seam.
+    @discardableResult
+    private func registerAndSchedule(_ spec: WorkerSpec, id: UUID) -> UUID {
         let worker = Worker(
             id: id,
             name: spec.name,
@@ -246,6 +278,9 @@ public actor RegattaOrchestrator {
                 branch: String(branch)
             )
         } catch {
+            // NOTE(#35, commit 1): worktree conflicts are still treated as a flat
+            // failure here; commit 2 parks them as `.blocked`. This is the bug the
+            // regression test catches.
             updateStatus(id: id, to: .failed(String(describing: error)))
             return
         }
@@ -276,10 +311,13 @@ public actor RegattaOrchestrator {
         records[id]?.paneID = handle.id
         updateStatus(id: id, to: .running)
 
-        // 3. Drive status from the process lifecycle.
+        // 3. Drive status from the process lifecycle, retaining output so a
+        //    crashed worker's stdout/stderr is preserved for the brain (issue #35).
         var exitCode: Int32?
         for await event in handle.output {
             if Task.isCancelled { return }
+            // NOTE(#35, commit 1): output is not yet retained; commit 2 captures
+            // stdout/stderr so a crashed worker's output survives.
             if case .terminated(let code) = event {
                 exitCode = code
             }
@@ -307,6 +345,12 @@ public actor RegattaOrchestrator {
         order.compactMap { records[$0]?.worker }
     }
 
+    /// Appends a captured output chunk to the worker's retained output buffer.
+    private func appendOutput(_ chunk: String, to id: UUID) {
+        guard records[id] != nil else { return }
+        records[id]?.output += chunk
+    }
+
     private func updateStatus(id: UUID, to status: WorkerStatus) {
         guard var record = records[id] else { return }
         record.worker = record.worker.withStatus(status)
@@ -317,8 +361,29 @@ public actor RegattaOrchestrator {
         // queued worker. This is the single promotion-on-completion/failure path,
         // shared by the lifecycle driver and cancellation.
         if status.isTerminal {
+            // NOTE(#35, commit 1): the brain is not yet notified on terminal;
+            // commit 2 calls notifyObserverIfNeeded so a crash reaches the brain.
             releaseSlotAndSchedule(id)
         }
+    }
+
+    /// Notifies the brain (if wired) exactly once that `id` reached a terminal
+    /// status, attaching the worker's retained output (issue #35). Fires for every
+    /// terminal status — including `.failed` (a crash) and `.blocked` — so the
+    /// brain can count failed iterations and surface crashes that left the Fleet.
+    private func notifyObserverIfNeeded(_ id: UUID) {
+        guard let observer = workerObserver else { return }
+        guard var record = records[id], !record.notified else { return }
+        record.notified = true
+        records[id] = record
+        let completion = WorkerCompletion(
+            id: id,
+            name: record.worker.name,
+            prompt: record.worker.prompt,
+            status: record.worker.status,
+            output: record.output
+        )
+        Task { await observer.workerDidComplete(completion) }
     }
 
     private func broadcast() {

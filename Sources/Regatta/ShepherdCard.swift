@@ -31,6 +31,12 @@ struct ShepherdCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
+            if case .paused(let reason, let retryAfter) = model.state.phase {
+                pausedBanner(reason: reason, retryAfter: retryAfter)
+            }
+            if let attention = model.state.needsAttention {
+                needsAttentionBanner(reason: attention)
+            }
             if let fixLoop = model.fixLoop {
                 fixLoopBanner(fixLoop)
             }
@@ -92,9 +98,11 @@ struct ShepherdCard: View {
     }
 
     private var dotColor: Color {
+        if model.state.needsAttention != nil { return .orange }
         switch model.state.phase {
         case .starting: return .gray
         case .failed: return .yellow
+        case .paused: return .orange
         case .watching:
             switch model.ciRollup {
             case .failing: return .red
@@ -113,6 +121,11 @@ struct ShepherdCard: View {
         case .failed(let reason):
             return String(
                 format: String(localized: "fleet.shepherd.failed", defaultValue: "Poll failed: %@"),
+                reason
+            )
+        case .paused(let reason, _):
+            return String(
+                format: String(localized: "fleet.shepherd.paused", defaultValue: "Paused: %@"),
                 reason
             )
         case .watching:
@@ -201,6 +214,91 @@ struct ShepherdCard: View {
                 reason
             )
         }
+    }
+
+    // MARK: - Paused banner (gh auth / rate-limit, issue #35)
+
+    /// A prominent banner shown while the shepherd is paused after a `gh` auth or
+    /// rate-limit failure and is backing off before retrying.
+    @ViewBuilder
+    private func pausedBanner(reason: String, retryAfter: Duration) -> some View {
+        statusBanner(
+            icon: "pause.circle.fill",
+            tint: .orange,
+            text: String(
+                format: String(
+                    localized: "fleet.shepherd.paused.banner",
+                    defaultValue: "Polling paused — %1$@. Retrying in %2$@."
+                ),
+                reason,
+                Self.backoffText(retryAfter)
+            ),
+            identifier: "ShepherdPausedBanner"
+        )
+    }
+
+    /// A short human label for a backoff duration, e.g. "30s" or "2m".
+    private static func backoffText(_ duration: Duration) -> String {
+        let seconds = Int(duration.components.seconds)
+        if seconds >= 60 {
+            let minutes = seconds / 60
+            return String(
+                format: String(localized: "fleet.shepherd.backoff.minutes", defaultValue: "%lldm"),
+                minutes
+            )
+        }
+        return String(
+            format: String(localized: "fleet.shepherd.backoff.seconds", defaultValue: "%llds"),
+            seconds
+        )
+    }
+
+    // MARK: - Needs-attention banner (CI never green, issue #35)
+
+    /// A prominent banner shown when the shepherd gave up automating the PR (the
+    /// ci-fix loop hit its cap) and stopped auto-pushing; the human must step in.
+    @ViewBuilder
+    private func needsAttentionBanner(reason: String) -> some View {
+        statusBanner(
+            icon: "exclamationmark.triangle.fill",
+            tint: .orange,
+            text: String(
+                format: String(
+                    localized: "fleet.shepherd.needsAttention.banner",
+                    defaultValue: "Needs attention — %@. Auto-push stopped."
+                ),
+                reason
+            ),
+            identifier: "ShepherdNeedsAttentionBanner"
+        )
+    }
+
+    /// Shared layout for the failure-state banners (paused / needs attention).
+    private func statusBanner(
+        icon: String,
+        tint: Color,
+        text: String,
+        identifier: String
+    ) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(tint)
+            Text(text)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(tint.opacity(0.12))
+        )
+        .accessibilityIdentifier(identifier)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - CI checks
