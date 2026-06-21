@@ -52,6 +52,7 @@ const sectionOrder = [
   "fileEditor",
   "fileExplorer",
   "shortcuts",
+  "regatta",
 ] as const;
 
 type ConfigurationTranslation = ReturnType<typeof useTranslations>;
