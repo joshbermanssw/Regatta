@@ -312,6 +312,26 @@ public actor RegattaOrchestrator {
         try? await worktreeManager.cleanup(forWorker: id.uuidString, force: true)
     }
 
+    /// Removes a worker from the Fleet entirely.
+    ///
+    /// Cancels it first if it is still running, then drops its record so terminal
+    /// workers (`done`/`failed`/`cancelled`/`blocked`) can be cleared from the UI —
+    /// otherwise a finished or failed worker would linger with no way to dismiss it.
+    /// Idempotent: removing an unknown id is a no-op.
+    public func removeWorker(_ id: UUID) async {
+        guard let record = records[id] else { return }
+        if !record.worker.status.isTerminal {
+            try? await cancelWorker(id)
+        }
+        records[id]?.observeTask?.cancel()
+        records[id] = nil
+        order.removeAll { $0 == id }
+        slotHolders.remove(id)
+        try? await worktreeManager.cleanup(forWorker: id.uuidString, force: true)
+        broadcast()
+        scheduleQueued()
+    }
+
     // MARK: - Lifecycle driver
 
     /// Provisions the worktree, launches the agent, and drives the worker's status

@@ -99,7 +99,8 @@ struct RegattaSummonOverlayView: View {
         case .worker(let worker):
             WorkerCell(
                 worker: worker,
-                onCancel: { viewModel.cancelWorker(worker.id) }
+                onCancel: { viewModel.cancelWorker(worker.id) },
+                onRemove: { viewModel.removeWorker(worker.id) }
             )
             .frame(minHeight: Self.cellMinHeight)
         case .spawn:
@@ -145,6 +146,7 @@ struct RegattaSummonOverlayView: View {
 private struct WorkerCell: View {
     let worker: Worker
     let onCancel: () -> Void
+    let onRemove: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -183,21 +185,28 @@ private struct WorkerCell: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer(minLength: 4)
-            if worker.status.isCancellable {
-                Button(action: onCancel) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .help(String(localized: "regatta.summon.cell.cancel.help", defaultValue: "Cancel worker"))
-                .accessibilityLabel(
-                    String.localizedStringWithFormat(
-                        String(localized: "regatta.summon.cell.cancel.a11y", defaultValue: "Cancel worker %@"),
-                        worker.name
-                    )
-                )
+            // Always offer a way to get rid of a worker: cancel while it's still
+            // running, remove once it has reached a terminal state (done/failed/
+            // cancelled/blocked) so dead cells can be cleared.
+            Button(action: worker.status.isCancellable ? onCancel : onRemove) {
+                Image(systemName: worker.status.isCancellable ? "xmark.circle.fill" : "trash.circle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
             }
+            .buttonStyle(.plain)
+            .help(
+                worker.status.isCancellable
+                    ? String(localized: "regatta.summon.cell.cancel.help", defaultValue: "Cancel worker")
+                    : String(localized: "regatta.summon.cell.remove.help", defaultValue: "Remove worker")
+            )
+            .accessibilityLabel(
+                String.localizedStringWithFormat(
+                    worker.status.isCancellable
+                        ? String(localized: "regatta.summon.cell.cancel.a11y", defaultValue: "Cancel worker %@")
+                        : String(localized: "regatta.summon.cell.remove.a11y", defaultValue: "Remove worker %@"),
+                    worker.name
+                )
+            )
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
