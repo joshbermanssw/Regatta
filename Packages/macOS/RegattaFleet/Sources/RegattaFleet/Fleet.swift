@@ -30,7 +30,12 @@ public actor Fleet {
     /// submitted here; it executes them immediately (`.auto`) or holds them for
     /// approval (`.staged`). The Fleet overlays each shepherd's current mode onto
     /// the snapshots it emits so the UI can render the toggle.
-    public let autonomyGate: AutonomyGate
+    ///
+    /// `nonisolated` so the composition root can read this immutable, `Sendable`
+    /// actor reference synchronously (e.g. to hand the same gate to the reactive
+    /// layers as their ``OutwardActionGate``) without hopping onto the Fleet
+    /// actor. Reading the reference is safe; every gate *operation* still awaits.
+    public nonisolated let autonomyGate: AutonomyGate
 
     private var watchers: [String: ShepherdWatcher] = [:]
     private var latest: [String: ShepherdState] = [:]

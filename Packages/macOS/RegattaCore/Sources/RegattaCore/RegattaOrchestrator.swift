@@ -47,6 +47,11 @@ public actor RegattaOrchestrator {
         let spec: WorkerSpec
         /// The pane handle ID once the agent process is spawned; `nil` while queued.
         var paneID: PaneHandle.ID?
+        /// The provisioned worktree once it exists; `nil` while queued or if
+        /// provisioning failed. Retained so a consumer (e.g. a CI-fix spawner)
+        /// can inspect the worktree — for example to `git diff` it — after the
+        /// worker terminates, before the orchestrator's best-effort cleanup runs.
+        var worktree: RegattaWorktree?
         /// The task observing the worker's output stream, cancelled on shutdown.
         var observeTask: Task<Void, Never>?
         /// The worker's captured stdout/stderr in arrival order, retained across
@@ -152,6 +157,50 @@ public actor RegattaOrchestrator {
     /// Returns the current Fleet snapshot in spawn order.
     public func workers() -> [Worker] {
         snapshot()
+    }
+
+    /// Returns the worker snapshot for `id`, or `nil` if no worker has that id.
+    public func worker(_ id: UUID) -> Worker? {
+        records[id]?.worker
+    }
+
+    /// Awaits the worker reaching a terminal status and returns its final
+    /// snapshot.
+    ///
+    /// If the worker is already terminal (or has no record) this returns the
+    /// current snapshot immediately. Otherwise it subscribes to ``updates()`` and
+    /// resolves once the worker's status satisfies ``WorkerStatus/isTerminal``.
+    /// This is the await-for-completion seam the reactive layers (#30/#31) use to
+    /// drive a worker to completion and then inspect its result.
+    ///
+    /// - Parameter id: The worker to await.
+    /// - Returns: The worker's terminal snapshot, or `nil` if no worker has `id`.
+    public func awaitTerminal(_ id: UUID) async -> Worker? {
+        guard let current = records[id]?.worker else { return nil }
+        if current.status.isTerminal { return current }
+        for await snap in updates() {
+            if let worker = snap.first(where: { $0.id == id }), worker.status.isTerminal {
+                return worker
+            }
+            // A worker that vanished from the snapshot (cancelled + cleaned up)
+            // cannot reach a terminal status on the stream; stop waiting.
+            if !snap.contains(where: { $0.id == id }) {
+                return records[id]?.worker
+            }
+        }
+        return records[id]?.worker
+    }
+
+    /// Returns the provisioned worktree for `id`, or `nil` while the worker is
+    /// still queued, never launched, or already cleaned up.
+    ///
+    /// The reactive layers (#30/#31) read this after ``awaitTerminal(_:)`` to
+    /// `git diff` the worker's worktree and decide whether it produced changes.
+    /// Note the orchestrator runs a best-effort worktree cleanup on `.failed` /
+    /// `.cancelled`, so this is reliable only for a `.done` worker (or a
+    /// `.blocked` one, whose worktree is intentionally preserved).
+    public func worktree(for id: UUID) -> RegattaWorktree? {
+        records[id]?.worktree
     }
 
     // MARK: - Spawn
@@ -291,6 +340,7 @@ public actor RegattaOrchestrator {
         }
 
         guard !Task.isCancelled, records[id] != nil else { return }
+        records[id]?.worktree = worktree
 
         // 2. Launch the agent process in the worktree.
         var arguments = spec.agentLaunch.arguments

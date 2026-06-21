@@ -1,6 +1,7 @@
 import Foundation
 import RegattaCore
 import RegattaFleet
+import RegattaGitHub
 import RegattaPersistence
 
 /// A thin `@MainActor` seam holding the app-lifetime Fleet object graph so that
@@ -33,21 +34,83 @@ final class RegattaFleetManager {
     /// persistent PR shepherds.
     let fleet: Fleet
 
+    /// The production ``WorkerSpawning`` conformer the reactive layers spawn real
+    /// agent workers through (Seam A). Exposed so other composition sites (e.g. a
+    /// loop view bound to a live worker) reuse the same live spawn path.
+    let workerSpawner: OrchestratorWorkerSpawner
+
+    /// The CI-fix reactor that spawns a real `ci-fix` worker when a shepherd's
+    /// checks turn red (#30), retained for the app's lifetime.
+    private let ciFixReactor: CIFixReactor
+
+    /// The review-thread reactor that spawns a real addressing worker for each new
+    /// reviewer comment (#31), retained for the app's lifetime.
+    private let reviewThreadReactor: ReviewThreadReactor
+
+    /// The bridge forwarding Fleet snapshots to the CI-fix reactor.
+    private let ciFixBridge: FleetCIFixBridge
+
+    /// The bridge forwarding Fleet snapshots to the review-thread reactor.
+    private let reviewThreadBridge: FleetReviewThreadBridge
+
     private let defaults: UserDefaults
     private var defaultsObserver: NSObjectProtocol?
 
     private init() {
         self.defaults = .standard
         let cap = RegattaConcurrencySettings(defaults: defaults).maxConcurrentWorkers
-        orchestrator = RegattaOrchestrator(
+        let orchestrator = RegattaOrchestrator(
             worktreeManager: RegattaWorktreeManager(
                 baseDirectory: RegattaWorktreeManager.defaultBaseDirectory()
             ),
             paneBridge: ProcessPaneBridge(),
             maxConcurrentWorkers: cap
         )
-        fleet = Fleet()
+        self.orchestrator = orchestrator
+
+        // One shared `gh`-backed poller drives both the Fleet's shepherd watchers
+        // and the CI-fix reactor's "until green" loop condition.
+        let poller = GitHubPoller()
+        let fleet = Fleet(poller: poller)
+        self.fleet = fleet
+
+        // Seam A: the live spawner backs both reactors with real agent workers.
+        let spawner = OrchestratorWorkerSpawner(orchestrator: orchestrator)
+        self.workerSpawner = spawner
+
+        // CI-fix loop (#30): spawn a real worker on red checks, push through the
+        // Fleet's real autonomy gate, and re-poll checks until green or capped.
+        let ciFixReactor = CIFixReactor(
+            spawner: spawner,
+            gate: fleet.autonomyGate,
+            poller: poller
+        )
+        self.ciFixReactor = ciFixReactor
+        self.ciFixBridge = FleetCIFixBridge(fleet: fleet, reactor: ciFixReactor)
+
+        // Review-thread handler (#31): spawn a real addressing worker per new
+        // reviewer comment, gated and writing back through the real `gh` writer.
+        let reviewThreadReactor = ReviewThreadReactor(
+            spawner: spawner,
+            writer: poller,
+            gate: fleet.autonomyGate,
+            log: RegattaReviewThreadActivityLogger()
+        )
+        self.reviewThreadReactor = reviewThreadReactor
+        self.reviewThreadBridge = FleetReviewThreadBridge(fleet: fleet, reactor: reviewThreadReactor)
+
         observeConcurrencyCap()
+        startReactors()
+    }
+
+    /// Starts both Fleet→reactor bridges so handing a PR off actually reacts to
+    /// CI failures and new review threads end-to-end. Idempotent (each bridge's
+    /// `start()` is a no-op once running).
+    private func startReactors() {
+        Task { [ciFixBridge, reviewThreadBridge] in
+            await ciFixBridge.start()
+            await reviewThreadBridge.start()
+        }
     }
 
     /// Resumes persisted PR shepherds into the live Fleet on launch (issue #34).
