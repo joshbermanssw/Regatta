@@ -231,7 +231,13 @@ public actor RegattaWorktreeManager {
             termination.complete(p.terminationStatus)
         }
 
-        try process.run()
+        // Launch inside the process-wide spawn gate so this `posix_spawn` cannot race a concurrent
+        // launch's open-but-not-yet-CLOEXEC pipe fds (e.g. a ``ProcessPaneBridge`` pane), which is
+        // the fd-inheritance hang behind issue #14. File handles are passed here, but a concurrent
+        // launch's *pipe* must not be mid-spawn while we fork.
+        try await SubprocessSpawnGate.shared.run {
+            try process.run()
+        }
         let exitCode = await termination.wait()
         try? outHandle.close()
         try? errHandle.close()
