@@ -1,100 +1,163 @@
 import Foundation
 import Observation
+import RegattaCore
 import RegattaFleet
 
-/// The view-model that projects the ``Fleet``'s shepherd list into the Fleet
-/// rail section and drives the "hand to Regatta" action.
+/// The view-model behind the Fleet rail section.
+///
+/// It projects two live sources into value-typed state for the section:
+/// - the ``RegattaOrchestrator``'s ephemeral brain-spawned ``Worker`` list, and
+/// - the ``Fleet``'s persistent PR shepherds plus the autonomy gate's pending
+///   approvals and per-PR activity log / fix-loop status.
 ///
 /// ## Lifecycle
-/// Create once as `@State` in ``RegattaRailView``; call ``observe()`` on appear
-/// to begin consuming the Fleet's snapshot stream.
+/// Create once as `@State` in ``RegattaRailView`` (defaulting to the shared
+/// ``RegattaFleetManager``) and pass by reference into ``FleetSectionView``. Call
+/// ``observe()`` when the section appears.
 ///
 /// ## Concurrency
-/// `@MainActor @Observable` — all published state is read directly by SwiftUI.
-/// The actor-isolated ``Fleet`` is touched only through `await` calls inside
-/// structured `Task`s owned by this class.
+/// `@MainActor @Observable` — every published property is read directly by
+/// SwiftUI. The actor-isolated ``RegattaOrchestrator`` / ``Fleet`` /
+/// ``AutonomyGate`` are reached only through `await` inside structured `Task`s.
 ///
 /// ## Snapshot-boundary rule (CLAUDE.md)
-/// ``shepherds`` is a flat array of ``ShepherdState`` value types. No `Fleet`
-/// reference escapes the `ForEach` boundary in the view layer.
+/// ``workers`` and ``shepherds`` are flat arrays of value types. No
+/// orchestrator/`Fleet`/actor reference escapes the `ForEach` boundary; rows get
+/// value copies plus closures only.
 @MainActor
 @Observable
 final class RegattaFleetViewModel {
 
-    // MARK: - Observable state
+    // MARK: - Observable state (orchestrator workers)
+
+    /// The current orchestrator Fleet snapshot in spawn order. Fed into rows as
+    /// value copies.
+    private(set) var workers: [Worker] = []
+
+    // MARK: - Observable state (PR shepherds)
 
     /// The current persistent shepherds, ordered for stable rendering.
-    /// Value snapshots only — safe to feed into list rows directly.
     private(set) var shepherds: [ShepherdState] = []
 
     /// The actions awaiting the user's approve/reject decision (staged mode),
-    /// across all shepherds. Value snapshots only.
+    /// across all shepherds.
     private(set) var pendingActions: [PendingAction] = []
 
-    /// The activity log per PR, keyed by ``PullRequestRef/id``. Value snapshots
-    /// only. Drives the card's activity-log section (#33).
-    ///
-    /// ## Seam for #30 / #31
-    /// This base populates the log from the autonomy gate's approve/reject
-    /// transitions. #30 (ci-fix loop) and #31 (reply/resolve) call
-    /// ``recordActivity(_:for:)`` to add their own entries when they merge.
+    /// The activity log per PR, keyed by ``PullRequestRef/id``. Drives the card's
+    /// activity-log section (#33).
     private(set) var activityLog: [String: [ShepherdActivityEntry]] = [:]
 
     /// The active CI-fix loop per PR, keyed by ``PullRequestRef/id``. `nil` when
     /// no loop is running. Drives the card's fix-loop banner (#33).
-    ///
-    /// ## Seam for #30
-    /// This base never starts a loop, so every slot stays `nil` and the banner
-    /// is hidden. #30 drives this through ``setFixLoop(_:for:)`` when it lands.
     private(set) var fixLoops: [String: ShepherdFixLoopStatus] = [:]
 
     // MARK: - Private non-observable
 
-    /// The app-lifetime Fleet. `@ObservationIgnored` — a resource handle, not
-    /// a UI-observable property.
+    /// The orchestrator that owns ephemeral worker lifecycle.
+    @ObservationIgnored
+    private let orchestrator: RegattaOrchestrator
+
+    /// The app-lifetime Fleet that owns persistent PR shepherds.
     @ObservationIgnored
     private let fleet: Fleet
 
-    /// The task consuming the Fleet's snapshot stream.
     @ObservationIgnored
-    private var observeTask: Task<Void, Never>?
-
-    // MARK: - Init
-
-    /// Creates a view-model backed by the given Fleet.
-    ///
-    /// - Parameter fleet: The ``Fleet`` to observe and hand PRs off to. Defaults
-    ///   to the app-lifetime Fleet from ``RegattaFleetManager``.
-    init(fleet: Fleet? = nil) {
-        self.fleet = fleet ?? RegattaFleetManager.shared.fleet
-    }
-
-    // MARK: - Public API
-
-    /// The task consuming the autonomy gate's pending-action stream.
+    private var workerTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var shepherdTask: Task<Void, Never>?
     @ObservationIgnored
     private var pendingTask: Task<Void, Never>?
 
-    /// Begins consuming the Fleet's snapshot stream and the autonomy gate's
-    /// pending-action stream. Idempotent.
+    // MARK: - Init
+
+    /// Creates a view-model bound to the given orchestrator and Fleet.
+    ///
+    /// - Parameters:
+    ///   - orchestrator: The orchestrator to observe. Defaults to the app-lifetime
+    ///     instance from ``RegattaFleetManager``.
+    ///   - fleet: The Fleet to observe and hand PRs off to. Defaults to the
+    ///     app-lifetime instance from ``RegattaFleetManager``.
+    init(orchestrator: RegattaOrchestrator? = nil, fleet: Fleet? = nil) {
+        self.orchestrator = orchestrator ?? RegattaFleetManager.shared.orchestrator
+        self.fleet = fleet ?? RegattaFleetManager.shared.fleet
+    }
+
+    // MARK: - Lifecycle
+
+    /// Subscribes to the orchestrator's worker snapshots, the Fleet's shepherd
+    /// snapshots, and the autonomy gate's pending-action stream. Idempotent.
     func observe() {
-        guard observeTask == nil else { return }
-        observeTask = Task { [weak self] in
-            guard let self else { return }
-            let stream = await self.fleet.snapshots()
-            for await snapshot in stream {
-                guard !Task.isCancelled else { break }
-                self.shepherds = snapshot
+        if workerTask == nil {
+            workerTask = Task { [weak self] in
+                guard let self else { return }
+                for await snapshot in await self.orchestrator.updates() {
+                    if Task.isCancelled { break }
+                    self.workers = snapshot
+                }
             }
         }
-        pendingTask = Task { [weak self] in
-            guard let self else { return }
-            let stream = await self.fleet.autonomyGate.pendingActions()
-            for await actions in stream {
-                guard !Task.isCancelled else { break }
-                self.pendingActions = actions
+        if shepherdTask == nil {
+            shepherdTask = Task { [weak self] in
+                guard let self else { return }
+                let stream = await self.fleet.snapshots()
+                for await snapshot in stream {
+                    if Task.isCancelled { break }
+                    self.shepherds = snapshot
+                }
             }
         }
+        if pendingTask == nil {
+            pendingTask = Task { [weak self] in
+                guard let self else { return }
+                let stream = await self.fleet.autonomyGate.pendingActions()
+                for await actions in stream {
+                    if Task.isCancelled { break }
+                    self.pendingActions = actions
+                }
+            }
+        }
+    }
+
+    /// Compatibility alias for the orchestrator-era observation entry point.
+    func startObserving() { observe() }
+
+    /// Cancels all observation tasks. Idempotent.
+    func shutdown() {
+        workerTask?.cancel(); workerTask = nil
+        shepherdTask?.cancel(); shepherdTask = nil
+        pendingTask?.cancel(); pendingTask = nil
+    }
+
+    /// Compatibility alias for the orchestrator-era teardown entry point.
+    func stopObserving() { shutdown() }
+
+    // MARK: - Worker actions
+
+    /// Requests a new worker from the orchestrator (the brain→Fleet spawn path).
+    @discardableResult
+    func spawnWorker(_ spec: WorkerSpec) async -> UUID {
+        await orchestrator.spawnWorker(spec)
+    }
+
+    /// Cancels a worker from the Fleet list.
+    func cancelWorker(_ id: UUID) {
+        Task { try? await orchestrator.cancelWorker(id) }
+    }
+
+    // MARK: - Shepherd actions
+
+    /// Hands a pull request off to the Fleet, creating a persistent shepherd and
+    /// starting its poll loop. Idempotent on PR identity.
+    func handoff(_ pullRequest: PullRequestRef) {
+        Task { await fleet.handoff(pullRequest) }
+    }
+
+    /// Removes the shepherd for the given PR, if present, and clears its local
+    /// card state (activity log + fix loop).
+    func dismiss(_ pullRequest: PullRequestRef) {
+        activityLog[pullRequest.id] = nil
+        fixLoops[pullRequest.id] = nil
+        Task { await fleet.dismiss(pullRequest) }
     }
 
     /// Sets a PR's autonomy mode. Per-PR; changeable at any time.
@@ -109,17 +172,11 @@ final class RegattaFleetViewModel {
         Task { [weak self] in
             guard let self else { return }
             let resolved = await self.fleet.autonomyGate.approve(id)
-            guard let action = action else { return }
+            guard let action else { return }
             let succeeded = resolved?.status == .completed
             let summary = succeeded
-                ? String(
-                    format: String(localized: "fleet.activity.approved", defaultValue: "Approved: %@"),
-                    action.summary
-                )
-                : String(
-                    format: String(localized: "fleet.activity.failed", defaultValue: "Failed: %@"),
-                    action.summary
-                )
+                ? String(format: String(localized: "fleet.activity.approved", defaultValue: "Approved: %@"), action.summary)
+                : String(format: String(localized: "fleet.activity.failed", defaultValue: "Failed: %@"), action.summary)
             self.recordActivity(
                 ShepherdActivityEntry(kind: self.activityKind(for: action.kind), summary: summary),
                 for: action.pullRequest
@@ -133,14 +190,11 @@ final class RegattaFleetViewModel {
         Task { [weak self] in
             guard let self else { return }
             _ = await self.fleet.autonomyGate.reject(id)
-            guard let action = action else { return }
+            guard let action else { return }
             self.recordActivity(
                 ShepherdActivityEntry(
                     kind: self.activityKind(for: action.kind),
-                    summary: String(
-                        format: String(localized: "fleet.activity.rejected", defaultValue: "Rejected: %@"),
-                        action.summary
-                    )
+                    summary: String(format: String(localized: "fleet.activity.rejected", defaultValue: "Rejected: %@"), action.summary)
                 ),
                 for: action.pullRequest
             )
@@ -149,7 +203,7 @@ final class RegattaFleetViewModel {
 
     // MARK: - Per-PR projection reads
 
-    /// The activity log for one PR, newest-first ordering handled by the card.
+    /// The activity log for one PR.
     func activity(for pullRequest: PullRequestRef) -> [ShepherdActivityEntry] {
         activityLog[pullRequest.id] ?? []
     }
@@ -161,11 +215,7 @@ final class RegattaFleetViewModel {
 
     // MARK: - Activity / fix-loop seam (#30 / #31)
 
-    /// Appends an activity-log entry for a PR. The card shows newest first.
-    ///
-    /// This is the seam #30 (ci-fix loop) and #31 (reply/resolve) call to record
-    /// the actions they take once those branches merge. Entries are capped to a
-    /// recent window so the log does not grow unbounded.
+    /// Appends an activity-log entry for a PR, capped to a recent window.
     func recordActivity(_ entry: ShepherdActivityEntry, for pullRequest: PullRequestRef) {
         var entries = activityLog[pullRequest.id] ?? []
         entries.append(entry)
@@ -176,9 +226,6 @@ final class RegattaFleetViewModel {
     }
 
     /// Sets (or clears, with `nil`) the active fix loop for a PR.
-    ///
-    /// This is the seam #30 drives when its ci-fix loop starts, succeeds, or
-    /// gives up. This base never calls it, so the banner stays hidden.
     func setFixLoop(_ status: ShepherdFixLoopStatus?, for pullRequest: PullRequestRef) {
         fixLoops[pullRequest.id] = status
     }
@@ -194,29 +241,4 @@ final class RegattaFleetViewModel {
 
     /// The maximum number of activity entries retained per PR.
     private static let maxActivityEntries = 50
-
-    /// Hands a pull request off to the Fleet, creating a persistent shepherd and
-    /// starting its poll loop. Idempotent on PR identity — a repeat handoff does
-    /// not create a duplicate.
-    ///
-    /// - Parameter pullRequest: The PR to shepherd.
-    func handoff(_ pullRequest: PullRequestRef) {
-        Task { await fleet.handoff(pullRequest) }
-    }
-
-    /// Removes the shepherd for the given PR, if present, and clears its local
-    /// card state (activity log + fix loop).
-    func dismiss(_ pullRequest: PullRequestRef) {
-        activityLog[pullRequest.id] = nil
-        fixLoops[pullRequest.id] = nil
-        Task { await fleet.dismiss(pullRequest) }
-    }
-
-    /// Stops observing and releases the consuming tasks. Idempotent.
-    func shutdown() {
-        observeTask?.cancel()
-        observeTask = nil
-        pendingTask?.cancel()
-        pendingTask = nil
-    }
 }

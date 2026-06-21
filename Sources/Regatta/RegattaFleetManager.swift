@@ -1,27 +1,76 @@
 import Foundation
+import RegattaCore
 import RegattaFleet
 
-/// A thin `@MainActor` seam holding the app-lifetime ``Fleet`` so that
-/// ``RegattaRailView`` and the handoff action share a single Fleet instance.
+/// A thin `@MainActor` seam holding the app-lifetime Fleet object graph so that
+/// the brain, the Fleet rail, the handoff action, and `AppDelegate` teardown all
+/// share a single ``RegattaOrchestrator`` and a single ``Fleet``.
 ///
-/// The Fleet owns every long-lived PR shepherd watcher; its identity-keyed
-/// registry is what makes handing the same PR off twice idempotent across the
-/// whole app, regardless of which entrypoint triggered the handoff.
+/// The orchestrator owns ephemeral brain-spawned worker lifecycle; the Fleet owns
+/// every long-lived PR shepherd watcher. Both need to be shared app-wide and
+/// there is no other injection path between the composition root and the SwiftUI
+/// view tree, so — like ``RegattaMemoryManager`` / ``RegattaBrainManager`` — a
+/// singleton is warranted. The seam holds no domain logic beyond constructing the
+/// object graph once and mirroring the concurrency cap into the orchestrator.
 ///
-/// Design note: a singleton is warranted for the same reason as
-/// ``RegattaMemoryManager`` — `AppDelegate` (the composition root) and the
-/// SwiftUI view tree both need the same Fleet and there is no other injection
-/// path between them. The seam holds no logic.
+/// ## Pane Bridge dependency (#14)
+/// The orchestrator is constructed with the real ``ProcessPaneBridge``: it spawns
+/// each worker's agent as a subprocess in its provisioned worktree and streams
+/// stdout/stderr/termination back through the ``PaneBridge`` seam.
 @MainActor
 final class RegattaFleetManager {
 
-    /// Shared instance accessed by the rail view and the handoff action.
+    /// Shared instance accessed by the rail view, the brain spawn path, and the
+    /// handoff action.
     static let shared = RegattaFleetManager()
 
-    /// The shared production ``Fleet`` (real `gh`-backed poller).
+    /// The app-lifetime orchestrator that provisions worktrees and launches
+    /// ephemeral workers.
+    let orchestrator: RegattaOrchestrator
+
+    /// The shared production ``Fleet`` (real `gh`-backed poller) that owns
+    /// persistent PR shepherds.
     let fleet: Fleet
 
+    private let defaults: UserDefaults
+    private var defaultsObserver: NSObjectProtocol?
+
     private init() {
+        self.defaults = .standard
+        let cap = RegattaConcurrencySettings(defaults: defaults).maxConcurrentWorkers
+        orchestrator = RegattaOrchestrator(
+            worktreeManager: RegattaWorktreeManager(
+                baseDirectory: RegattaWorktreeManager.defaultBaseDirectory()
+            ),
+            paneBridge: ProcessPaneBridge(),
+            maxConcurrentWorkers: cap
+        )
         fleet = Fleet()
+        observeConcurrencyCap()
+    }
+
+    deinit {
+        if let defaultsObserver {
+            NotificationCenter.default.removeObserver(defaultsObserver)
+        }
+    }
+
+    /// Mirrors live `regatta.maxConcurrentWorkers` config changes into the
+    /// orchestrator so editing the cap in Settings (or `cmux.json`) takes effect
+    /// without restarting — promoting queued workers when raised, holding new
+    /// spawns when lowered. The settings file store applies the JSON value into
+    /// `UserDefaults.standard`, which posts `didChangeNotification`.
+    private func observeConcurrencyCap() {
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            let cap = RegattaConcurrencySettings(defaults: self.defaults).maxConcurrentWorkers
+            Task { [orchestrator] in
+                await orchestrator.setMaxConcurrentWorkers(cap)
+            }
+        }
     }
 }
