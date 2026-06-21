@@ -6,18 +6,28 @@ public import Foundation
 /// the target repository to work in, and how to launch the agent process inside
 /// the provisioned worktree.
 ///
+/// The worker's CLI agent is chosen by ``AgentProvider`` (issue #36). The
+/// recommended initializer takes a provider and records its ``providerID`` while
+/// deriving the ``agentLaunch`` from it, so the provider choice rides the same
+/// orchestrator → ``PaneBridge`` spawn path. Claude Code is the default.
+///
 /// ## Example
 /// ```swift
+/// // Default provider (Claude Code):
 /// let spec = WorkerSpec(
 ///     name: "Fix login bug",
 ///     prompt: "Investigate and fix the 500 on /login",
-///     repoURL: URL(fileURLWithPath: "/path/to/repo"),
-///     agentLaunch: .init(
-///         executableURL: URL(fileURLWithPath: "/usr/bin/env"),
-///         arguments: ["claude", "-p"]
-///     )
+///     repoURL: URL(fileURLWithPath: "/path/to/repo")
 /// )
-/// let id = try await orchestrator.spawnWorker(spec)
+///
+/// // Explicit provider:
+/// let codexSpec = WorkerSpec(
+///     name: "Codex worker",
+///     prompt: "Add a test",
+///     repoURL: URL(fileURLWithPath: "/path/to/repo"),
+///     provider: CodexProvider()
+/// )
+/// let id = await orchestrator.spawnWorker(spec)
 /// ```
 public struct WorkerSpec: Sendable, Equatable {
     /// A short human-readable name shown in the Fleet list.
@@ -30,29 +40,66 @@ public struct WorkerSpec: Sendable, Equatable {
     /// from it for isolation.
     public let repoURL: URL
 
+    /// The CLI agent provider this worker is launched with. Recorded on the
+    /// ``Worker`` snapshot and shown in the Fleet UI.
+    public let providerID: AgentProviderID
+
     /// How to launch the agent process inside the worktree.
     ///
     /// The orchestrator appends the prompt to the agent's arguments and sets the
     /// process working directory to the provisioned worktree, so the launch here
-    /// describes only the executable, base arguments, and environment.
+    /// describes only the executable, base arguments, and environment. Derived
+    /// from the chosen provider.
     public let agentLaunch: WorkerAgentLaunch
 
-    /// Creates a `WorkerSpec`.
+    /// Creates a `WorkerSpec` for a chosen provider (Claude Code by default).
+    ///
+    /// The provider builds the ``agentLaunch`` for `prompt` and its
+    /// ``AgentProvider/id`` is recorded as ``providerID``.
+    ///
+    /// - Parameters:
+    ///   - name: A short human-readable name shown in the Fleet list.
+    ///   - prompt: The goal/prompt handed to the agent.
+    ///   - repoURL: The git repository the worker operates on.
+    ///   - provider: The CLI agent provider to launch. Defaults to
+    ///     ``ClaudeCodeProvider``.
+    public init(
+        name: String,
+        prompt: String,
+        repoURL: URL,
+        provider: any AgentProvider = ClaudeCodeProvider()
+    ) {
+        self.name = name
+        self.prompt = prompt
+        self.repoURL = repoURL
+        self.providerID = provider.id
+        self.agentLaunch = provider.makeLaunch(prompt: prompt)
+    }
+
+    /// Creates a `WorkerSpec` from an explicit launch description.
+    ///
+    /// Use the provider initializer instead unless you need to supply a custom
+    /// launch directly (e.g. a fake agent in tests). The provider id is recorded
+    /// for UI/bookkeeping and defaults to ``AgentProviderID/default``.
     ///
     /// - Parameters:
     ///   - name: A short human-readable name shown in the Fleet list.
     ///   - prompt: The goal/prompt handed to the agent.
     ///   - repoURL: The git repository the worker operates on.
     ///   - agentLaunch: How to launch the agent process inside the worktree.
+    ///   - providerID: The provider id to record. Defaults to
+    ///     ``AgentProviderID/default``.
     public init(
         name: String,
         prompt: String,
         repoURL: URL,
-        agentLaunch: WorkerAgentLaunch
+        agentLaunch: WorkerAgentLaunch,
+        providerID: AgentProviderID = .default
     ) {
         self.name = name
         self.prompt = prompt
         self.repoURL = repoURL
+        self.providerID = providerID
         self.agentLaunch = agentLaunch
     }
 }

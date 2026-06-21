@@ -86,10 +86,13 @@ private struct WorkerRow: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Text(statusLabel)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    providerBadge
+                    Text(statusLabel)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 4)
             if worker.status.isCancellable {
@@ -102,11 +105,31 @@ private struct WorkerRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
             String.localizedStringWithFormat(
-                String(localized: "regatta.fleet.worker.a11y", defaultValue: "Worker %@, %@"),
+                String(localized: "regatta.fleet.worker.a11y", defaultValue: "Worker %@, %@, %@"),
                 worker.name,
+                worker.providerID.displayName,
                 statusLabel
             )
         )
+    }
+
+    // MARK: Provider badge
+
+    /// A small badge naming the worker's CLI agent provider (issue #36). The
+    /// provider name is a product brand name (e.g. "Claude Code", "Codex",
+    /// "Gemini") shown verbatim and not translated.
+    private var providerBadge: some View {
+        Text(worker.providerID.displayName)
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(.quaternary)
+            )
+            .lineLimit(1)
+            .fixedSize()
     }
 
     // MARK: Status dot
