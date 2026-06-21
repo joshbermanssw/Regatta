@@ -29,7 +29,7 @@ import Foundation
                 steps: [.out("iteration-\(index)")],
                 exitCode: code
             )
-            let run = try agent.run(script)
+            let run = try await agent.run(script)
             return RegattaLoopOutcome(
                 kind: run.exitCode == 0 ? .succeeded : .progressed,
                 summary: "exit=\(run.exitCode) out=\(run.stdout.trimmingCharacters(in: .whitespacesAndNewlines))",
@@ -54,7 +54,7 @@ import Foundation
             worker: RegattaClosureLoopWorker { index, _ in
                 // Always "progressed" (exit 1) so the built-in condition never
                 // stops a manual loop on its own.
-                let run = try agent.run(FakeAgentScript(steps: [.out("i\(index)")], exitCode: 1))
+                let run = try await agent.run(FakeAgentScript(steps: [.out("i\(index)")], exitCode: 1))
                 return RegattaLoopOutcome(kind: .progressed, summary: run.stdout, tokensUsed: 0)
             }
         )
