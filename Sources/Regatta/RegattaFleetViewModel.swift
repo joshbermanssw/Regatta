@@ -1,92 +1,85 @@
 import Foundation
 import Observation
-import RegattaCore
+import RegattaFleet
 
-/// The view-model that projects the ``RegattaOrchestrator``'s live Fleet snapshots
-/// into value-typed rows for the Fleet rail section.
+/// The view-model that projects the ``Fleet``'s shepherd list into the Fleet
+/// rail section and drives the "hand to Regatta" action.
 ///
 /// ## Lifecycle
-/// Create once as `@State` in ``RegattaRailView`` (defaulting to the shared
-/// ``RegattaFleetManager`` orchestrator) and pass by reference into
-/// ``FleetSectionView``. Call ``startObserving()`` when the section appears; it
-/// subscribes to the orchestrator's `updates()` stream and mirrors every snapshot
-/// onto `@MainActor`.
+/// Create once as `@State` in ``RegattaRailView``; call ``observe()`` on appear
+/// to begin consuming the Fleet's snapshot stream.
 ///
 /// ## Concurrency
-/// `@MainActor @Observable` — `workers` is read directly by SwiftUI. The
-/// orchestrator is an `actor` reached only through `await` inside the observation
-/// `Task`.
+/// `@MainActor @Observable` — all published state is read directly by SwiftUI.
+/// The actor-isolated ``Fleet`` is touched only through `await` calls inside
+/// structured `Task`s owned by this class.
 ///
 /// ## Snapshot-boundary rule (CLAUDE.md)
-/// ``workers`` is a flat array of ``Worker`` value types. No orchestrator/actor
-/// reference escapes the `ForEach` boundary in the view; rows get `Worker` copies
-/// plus a cancel closure.
+/// ``shepherds`` is a flat array of ``ShepherdState`` value types. No `Fleet`
+/// reference escapes the `ForEach` boundary in the view layer.
 @MainActor
 @Observable
 final class RegattaFleetViewModel {
 
     // MARK: - Observable state
 
-    /// The current Fleet snapshot in spawn order. Fed into `ForEach` rows as
-    /// value copies.
-    private(set) var workers: [Worker] = []
+    /// The current persistent shepherds, ordered for stable rendering.
+    /// Value snapshots only — safe to feed into list rows directly.
+    private(set) var shepherds: [ShepherdState] = []
 
     // MARK: - Private non-observable
 
-    /// The orchestrator that owns worker lifecycle. `@ObservationIgnored` — it is
-    /// an internal resource handle, not UI-observable.
+    /// The app-lifetime Fleet. `@ObservationIgnored` — a resource handle, not
+    /// a UI-observable property.
     @ObservationIgnored
-    private let orchestrator: RegattaOrchestrator
+    private let fleet: Fleet
 
-    /// The structured `Task` consuming the orchestrator's snapshot stream.
+    /// The task consuming the Fleet's snapshot stream.
     @ObservationIgnored
     private var observeTask: Task<Void, Never>?
 
     // MARK: - Init
 
-    /// Creates a view-model bound to the given orchestrator.
+    /// Creates a view-model backed by the given Fleet.
     ///
-    /// - Parameter orchestrator: The orchestrator to observe. Defaults to the
-    ///   app-lifetime instance from ``RegattaFleetManager``.
-    init(orchestrator: RegattaOrchestrator? = nil) {
-        self.orchestrator = orchestrator ?? RegattaFleetManager.shared.orchestrator
+    /// - Parameter fleet: The ``Fleet`` to observe and hand PRs off to. Defaults
+    ///   to the app-lifetime Fleet from ``RegattaFleetManager``.
+    init(fleet: Fleet? = nil) {
+        self.fleet = fleet ?? RegattaFleetManager.shared.fleet
     }
 
-    // MARK: - Lifecycle
+    // MARK: - Public API
 
-    /// Subscribes to the orchestrator's Fleet snapshots. Safe to call repeatedly;
-    /// only the first call starts an observation task.
-    func startObserving() {
+    /// Begins consuming the Fleet's snapshot stream. Idempotent.
+    func observe() {
         guard observeTask == nil else { return }
         observeTask = Task { [weak self] in
             guard let self else { return }
-            for await snapshot in await self.orchestrator.updates() {
-                if Task.isCancelled { break }
-                self.workers = snapshot
+            let stream = await self.fleet.snapshots()
+            for await snapshot in stream {
+                guard !Task.isCancelled else { break }
+                self.shepherds = snapshot
             }
         }
     }
 
-    /// Cancels the observation task. Idempotent.
-    func stopObserving() {
+    /// Hands a pull request off to the Fleet, creating a persistent shepherd and
+    /// starting its poll loop. Idempotent on PR identity — a repeat handoff does
+    /// not create a duplicate.
+    ///
+    /// - Parameter pullRequest: The PR to shepherd.
+    func handoff(_ pullRequest: PullRequestRef) {
+        Task { await fleet.handoff(pullRequest) }
+    }
+
+    /// Removes the shepherd for the given PR, if present.
+    func dismiss(_ pullRequest: PullRequestRef) {
+        Task { await fleet.dismiss(pullRequest) }
+    }
+
+    /// Stops observing and releases the consuming task. Idempotent.
+    func shutdown() {
         observeTask?.cancel()
         observeTask = nil
-    }
-
-    // MARK: - Actions
-
-    /// Requests a new worker from the orchestrator (the brain→Fleet spawn path).
-    ///
-    /// - Parameter spec: The worker request (goal/prompt, repo, agent launch).
-    @discardableResult
-    func spawnWorker(_ spec: WorkerSpec) async -> UUID {
-        await orchestrator.spawnWorker(spec)
-    }
-
-    /// Cancels a worker from the Fleet list.
-    ///
-    /// - Parameter id: The worker to cancel.
-    func cancelWorker(_ id: UUID) {
-        Task { try? await orchestrator.cancelWorker(id) }
     }
 }

@@ -37,7 +37,7 @@ struct RegattaRailView: View {
                     title: String(localized: "regatta.rail.section.fleet", defaultValue: "Fleet"),
                     symbolName: "sailboat"
                 ) {
-                    FleetSectionView(viewModel: fleetViewModel)
+                    FleetSectionView(viewModel: fleetViewModel, contextProvider: contextProvider)
                 }
 
                 RegattaRailSection(
