@@ -29,6 +29,12 @@ final class RegattaSummonManager {
     /// The borderless window hosting the overlay, created lazily on first summon.
     private var overlayWindow: NSWindow?
 
+    /// Local key-event monitor active only while the overlay is visible, so `esc`
+    /// dismisses it regardless of which window holds key focus (a borderless child
+    /// window does not reliably become key, so relying on the responder chain alone
+    /// missed `esc`).
+    private var escMonitor: Any?
+
     private init() {}
 
     /// Summons the overlay grid over the main window's content area.
@@ -55,6 +61,10 @@ final class RegattaSummonManager {
     func dismiss() {
         viewModel.dismiss()
         overlayWindow?.orderOut(nil)
+        if let escMonitor {
+            NSEvent.removeMonitor(escMonitor)
+            self.escMonitor = nil
+        }
     }
 
     // MARK: - Window presentation
@@ -68,10 +78,26 @@ final class RegattaSummonManager {
         window.setFrame(frame, display: true)
         host.addChildWindow(window, ordered: .above)
         window.makeKeyAndOrderFront(nil)
+        installEscMonitor()
+    }
+
+    /// Installs a local key-down monitor that dismisses the overlay on `esc`
+    /// (keyCode 53) and passes every other key through untouched, so typing is
+    /// unaffected. Idempotent — only one monitor is ever active.
+    private func installEscMonitor() {
+        guard escMonitor == nil else { return }
+        escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.overlayWindow?.isVisible == true else { return event }
+            if event.keyCode == 53 { // esc
+                self.dismiss()
+                return nil
+            }
+            return event
+        }
     }
 
     private func makeOverlayWindow() -> NSWindow {
-        let window = NSWindow(
+        let window = SummonOverlayWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
             styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
@@ -87,4 +113,15 @@ final class RegattaSummonManager {
         )
         return window
     }
+}
+
+/// A borderless overlay window that is allowed to become key.
+///
+/// Borderless `NSWindow`s return `canBecomeKey == false` by default, which would
+/// stop the summon overlay from ever receiving key events — so `esc`
+/// (`cancelOperation(_:)`) would never reach `EscDismissCatcher`. Overriding this
+/// lets the overlay take key focus and be dismissed with `esc`.
+private final class SummonOverlayWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
 }
