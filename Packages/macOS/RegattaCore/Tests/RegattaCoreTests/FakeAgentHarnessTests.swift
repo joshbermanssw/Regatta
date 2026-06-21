@@ -15,13 +15,13 @@ import Testing
     // MARK: - emitsOutputAndExitCode
 
     /// Verifies that OUT directives appear on stdout in order and exit code is captured.
-    @Test func emitsOutputAndExitCode() throws {
+    @Test func emitsOutputAndExitCode() async throws {
         let script = FakeAgentScript(
             steps: [.out("hello"), .out("world")],
             exitCode: 0
         )
 
-        let result = try agent.run(script)
+        let result = try await agent.run(script)
 
         #expect(result.stdout.contains("hello"), "stdout should contain 'hello'; got: \(result.stdout)")
         #expect(result.stdout.contains("world"), "stdout should contain 'world'; got: \(result.stdout)")
@@ -39,13 +39,13 @@ import Testing
     // MARK: - nonZeroExitAndStderr
 
     /// Verifies that ERR directives appear on stderr and non-zero exit codes are captured.
-    @Test func nonZeroExitAndStderr() throws {
+    @Test func nonZeroExitAndStderr() async throws {
         let script = FakeAgentScript(
             steps: [.err("something went wrong")],
             exitCode: 3
         )
 
-        let result = try agent.run(script)
+        let result = try await agent.run(script)
 
         #expect(
             result.stderr.contains("something went wrong"),
@@ -59,13 +59,13 @@ import Testing
     /// Verifies that `loop(scripts:maxIterations:)` stops on the first exit-0 run and that
     /// per-run results are correct. Also exercises the SLEEP directive (10 ms) in the second
     /// iteration to confirm the schedule directive works without slowing the suite.
-    @Test func loopStopsOnSuccess() throws {
+    @Test func loopStopsOnSuccess() async throws {
         // Build three scripts: first two fail (exit 1), third succeeds (exit 0).
         let failScript1 = FakeAgentScript(steps: [.out("try1")], exitCode: 1)
         let failScript2 = FakeAgentScript(steps: [.sleepMs(10), .out("try2")], exitCode: 1)
         let successScript = FakeAgentScript(steps: [.out("ok")], exitCode: 0)
 
-        let results = try agent.loop(
+        let results = try await agent.loop(
             scripts: [failScript1, failScript2, successScript],
             maxIterations: 5
         )
@@ -92,10 +92,10 @@ import Testing
     // MARK: - loopRespectsMaxIterations
 
     /// Verifies that `maxIterations` caps the total number of runs even when all scripts fail.
-    @Test func loopRespectsMaxIterations() throws {
+    @Test func loopRespectsMaxIterations() async throws {
         let alwaysFail = FakeAgentScript(steps: [.out("fail")], exitCode: 1)
 
-        let results = try agent.loop(
+        let results = try await agent.loop(
             scripts: [alwaysFail, alwaysFail, alwaysFail],
             maxIterations: 2
         )

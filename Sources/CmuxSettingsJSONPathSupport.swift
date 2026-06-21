@@ -432,5 +432,6 @@ extension CmuxSettingsFileStore {
         "fileEditor.wordWrap",
         "fileExplorer.doubleClickAction",
         "shortcuts.bindings",
+        "regatta.maxConcurrentWorkers",
     ]
 }

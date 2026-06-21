@@ -193,7 +193,13 @@
          location = "group:RegattaCore">
       </FileRef>
       <FileRef
+         location = "group:RegattaFleet">
+      </FileRef>
+      <FileRef
          location = "group:RegattaGitHub">
+      </FileRef>
+      <FileRef
+         location = "group:RegattaLoopUI">
       </FileRef>
       <FileRef
          location = "group:RegattaMemory">

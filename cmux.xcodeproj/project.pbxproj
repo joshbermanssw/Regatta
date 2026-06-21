@@ -419,6 +419,7 @@
 		D0E0F0B4A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B5A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift */; };
 		F1A0C0DE0000000000000002 /* FindTextFieldSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */; };
 		C0F15A000000000000000001 /* FishShellIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F15A000000000000000002 /* FishShellIntegrationTests.swift */; };
+		BA2903060000000000000001 /* FleetSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2903030000000000000001 /* FleetSectionView.swift */; };
 		F0C05170000000000000002 /* FocusHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C05170000000000000001 /* FocusHistory.swift */; };
 		C4160A020000000000000001 /* FocusHistoryMenuInvalidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A020000000000000002 /* FocusHistoryMenuInvalidator.swift */; };
 		5E55400000000000000000D1 /* FocusStealingResponderConformances.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E55400000000000000000D2 /* FocusStealingResponderConformances.swift */; };
@@ -602,8 +603,21 @@
 		BA29000B0000000000000001 /* RegattaBrainLaunch+Claude.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA29000A0000000000000001 /* RegattaBrainLaunch+Claude.swift */; };
 		BA29000D0000000000000001 /* RegattaBrainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA29000C0000000000000001 /* RegattaBrainManager.swift */; };
 		BA2900090000000000000001 /* RegattaBrainViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2900080000000000000001 /* RegattaBrainViewModel.swift */; };
+		BA2904040000000000000001 /* RegattaConcurrencySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2904010000000000000001 /* RegattaConcurrencySettings.swift */; };
+		BA2902040000000000000001 /* RegattaCore in Frameworks */ = {isa = PBXBuildFile; productRef = BA2902020000000000000001 /* RegattaCore */; };
+		BA2902050000000000000001 /* RegattaCore in Frameworks */ = {isa = PBXBuildFile; productRef = BA2902030000000000000001 /* RegattaCore */; };
 		E945A2454EB52903AA136DD0 /* RegattaFeatureFlag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AB265C045B64664664848A4 /* RegattaFeatureFlag.swift */; };
 		B2A2438A53E8224EAA45107C /* RegattaFeatureFlagTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A423581158A70EF6CDFF358E /* RegattaFeatureFlagTests.swift */; };
+		BA2910040000000000000001 /* RegattaFleet in Frameworks */ = {isa = PBXBuildFile; productRef = BA2910020000000000000001 /* RegattaFleet */; };
+		BA2910050000000000000001 /* RegattaFleet in Frameworks */ = {isa = PBXBuildFile; productRef = BA2910030000000000000001 /* RegattaFleet */; };
+		BA2903040000000000000001 /* RegattaFleetManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2903010000000000000001 /* RegattaFleetManager.swift */; };
+		BA2920050000000000000002 /* RegattaFleetSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2920050000000000000001 /* RegattaFleetSectionView.swift */; };
+		BA2903050000000000000001 /* RegattaFleetViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2903020000000000000001 /* RegattaFleetViewModel.swift */; };
+		BA2930010000000000000002 /* RegattaFleetViewModelActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2930010000000000000001 /* RegattaFleetViewModelActivityTests.swift */; };
+		BA2912040000000000000001 /* RegattaGitHub in Frameworks */ = {isa = PBXBuildFile; productRef = BA2912020000000000000001 /* RegattaGitHub */; };
+		BA2912050000000000000001 /* RegattaGitHub in Frameworks */ = {isa = PBXBuildFile; productRef = BA2912030000000000000001 /* RegattaGitHub */; };
+		BA2911040000000000000001 /* RegattaLoopUI in Frameworks */ = {isa = PBXBuildFile; productRef = BA2911020000000000000001 /* RegattaLoopUI */; };
+		BA2911050000000000000001 /* RegattaLoopUI in Frameworks */ = {isa = PBXBuildFile; productRef = BA2911030000000000000001 /* RegattaLoopUI */; };
 		BA2901040000000000000001 /* RegattaMemory in Frameworks */ = {isa = PBXBuildFile; productRef = BA2901020000000000000001 /* RegattaMemory */; };
 		BA2901050000000000000001 /* RegattaMemory in Frameworks */ = {isa = PBXBuildFile; productRef = BA2901030000000000000001 /* RegattaMemory */; };
 		BA29010A0000000000000001 /* RegattaMemoryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2901070000000000000001 /* RegattaMemoryManager.swift */; };
@@ -612,6 +626,9 @@
 		6E88CF3593A8306CBF7E714A /* RegattaRailModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96F7B20A6E94CC93127FDF45 /* RegattaRailModeTests.swift */; };
 		7259911ECA21459664E535AA /* RegattaRailSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DAD83CD129913FC97545C1E /* RegattaRailSection.swift */; };
 		D4D05D372C00F1BF330A223F /* RegattaRailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11949C61F1374C0C800032DD /* RegattaRailView.swift */; };
+		BA2904030000000000000002 /* RegattaSummonManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2904030000000000000001 /* RegattaSummonManager.swift */; };
+		BA2904020000000000000002 /* RegattaSummonOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2904020000000000000001 /* RegattaSummonOverlayView.swift */; };
+		BA2904010000000000000002 /* RegattaSummonViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2905010000000000000001 /* RegattaSummonViewModel.swift */; };
 		A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0000000000000000001 /* ReleasingWindowController.swift */; };
 		A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */; };
 		EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */; };
@@ -740,6 +757,11 @@
 		D10000000000000000A0001E /* SettingsWorkspaceColorsBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */; };
 		C0F16A000000000000000001 /* ShellStartupMatrixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F16A000000000000000002 /* ShellStartupMatrixTests.swift */; };
 		C0F16C000000000000000001 /* ShellStartupMissingBundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F16C000000000000000002 /* ShellStartupMissingBundleTests.swift */; };
+		BA2920010000000000000002 /* ShepherdActivityEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2920010000000000000001 /* ShepherdActivityEntry.swift */; };
+		BA2920020000000000000002 /* ShepherdCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2920020000000000000001 /* ShepherdCard.swift */; };
+		BA2920030000000000000002 /* ShepherdCardModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2920030000000000000001 /* ShepherdCardModel.swift */; };
+		BA2930020000000000000002 /* ShepherdCardModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2930020000000000000001 /* ShepherdCardModelTests.swift */; };
+		BA2920040000000000000002 /* ShepherdFixLoopStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2920040000000000000001 /* ShepherdFixLoopStatus.swift */; };
 		1521D55DC63D5E5FC4955E31 /* ShortcutAndCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */; };
 		76027A12C93B4538BF22C71E /* ShortcutBareStartRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB7F2E9143904957AAA70726 /* ShortcutBareStartRouting.swift */; };
 		6042A0036042A0036042A003 /* ShortcutHintDebugSettingsBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6042B0036042B0036042B003 /* ShortcutHintDebugSettingsBindingTests.swift */; };
@@ -1415,6 +1437,7 @@
 		D0E0F0B5A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindSelectionShortcutUITests.swift; sourceTree = "<group>"; };
 		F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/FindTextFieldSupport.swift; sourceTree = "<group>"; };
 		C0F15A000000000000000002 /* FishShellIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FishShellIntegrationTests.swift; sourceTree = "<group>"; };
+		BA2903030000000000000001 /* FleetSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetSectionView.swift; sourceTree = "<group>"; };
 		F0C05170000000000000001 /* FocusHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusHistory.swift; sourceTree = "<group>"; };
 		C4160A020000000000000002 /* FocusHistoryMenuInvalidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusHistoryMenuInvalidator.swift; sourceTree = "<group>"; };
 		5E55400000000000000000D2 /* FocusStealingResponderConformances.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusStealingResponderConformances.swift; sourceTree = "<group>"; };
@@ -1594,14 +1617,22 @@
 		BA29000A0000000000000001 /* RegattaBrainLaunch+Claude.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RegattaBrainLaunch+Claude.swift"; sourceTree = "<group>"; };
 		BA29000C0000000000000001 /* RegattaBrainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaBrainManager.swift; sourceTree = "<group>"; };
 		BA2900080000000000000001 /* RegattaBrainViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaBrainViewModel.swift; sourceTree = "<group>"; };
+		BA2904010000000000000001 /* RegattaConcurrencySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaConcurrencySettings.swift; sourceTree = "<group>"; };
 		4AB265C045B64664664848A4 /* RegattaFeatureFlag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaFeatureFlag.swift; sourceTree = "<group>"; };
 		A423581158A70EF6CDFF358E /* RegattaFeatureFlagTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaFeatureFlagTests.swift; sourceTree = "<group>"; };
+		BA2903010000000000000001 /* RegattaFleetManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaFleetManager.swift; sourceTree = "<group>"; };
+		BA2920050000000000000001 /* RegattaFleetSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaFleetSectionView.swift; sourceTree = "<group>"; };
+		BA2903020000000000000001 /* RegattaFleetViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaFleetViewModel.swift; sourceTree = "<group>"; };
+		BA2930010000000000000001 /* RegattaFleetViewModelActivityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Regatta/RegattaFleetViewModelActivityTests.swift; sourceTree = "<group>"; };
 		BA2901070000000000000001 /* RegattaMemoryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaMemoryManager.swift; sourceTree = "<group>"; };
 		BA2901080000000000000001 /* RegattaMemoryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaMemoryViewModel.swift; sourceTree = "<group>"; };
 		925D32D4FD5365728201E971 /* RegattaPlaceholderWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaPlaceholderWindow.swift; sourceTree = "<group>"; };
 		96F7B20A6E94CC93127FDF45 /* RegattaRailModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Regatta/RegattaRailModeTests.swift; sourceTree = "<group>"; };
 		7DAD83CD129913FC97545C1E /* RegattaRailSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaRailSection.swift; sourceTree = "<group>"; };
 		11949C61F1374C0C800032DD /* RegattaRailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaRailView.swift; sourceTree = "<group>"; };
+		BA2904030000000000000001 /* RegattaSummonManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaSummonManager.swift; sourceTree = "<group>"; };
+		BA2904020000000000000001 /* RegattaSummonOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaSummonOverlayView.swift; sourceTree = "<group>"; };
+		BA2905010000000000000001 /* RegattaSummonViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaSummonViewModel.swift; sourceTree = "<group>"; };
 		A6D1F0000000000000000001 /* ReleasingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ReleasingWindowController.swift; sourceTree = "<group>"; };
 		A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleasingWindowControllerTests.swift; sourceTree = "<group>"; };
 		EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteDaemonStrings+App.swift"; sourceTree = "<group>"; };
@@ -1724,6 +1755,11 @@
 		D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWorkspaceColorsBehaviorUITests.swift; sourceTree = "<group>"; };
 		C0F16A000000000000000002 /* ShellStartupMatrixTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellStartupMatrixTests.swift; sourceTree = "<group>"; };
 		C0F16C000000000000000002 /* ShellStartupMissingBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellStartupMissingBundleTests.swift; sourceTree = "<group>"; };
+		BA2920010000000000000001 /* ShepherdActivityEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShepherdActivityEntry.swift; sourceTree = "<group>"; };
+		BA2920020000000000000001 /* ShepherdCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShepherdCard.swift; sourceTree = "<group>"; };
+		BA2920030000000000000001 /* ShepherdCardModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShepherdCardModel.swift; sourceTree = "<group>"; };
+		BA2930020000000000000001 /* ShepherdCardModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Regatta/ShepherdCardModelTests.swift; sourceTree = "<group>"; };
+		BA2920040000000000000001 /* ShepherdFixLoopStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShepherdFixLoopStatus.swift; sourceTree = "<group>"; };
 		6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutAndCommandPaletteTests.swift; sourceTree = "<group>"; };
 		AB7F2E9143904957AAA70726 /* ShortcutBareStartRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ShortcutBareStartRouting.swift; sourceTree = "<group>"; };
 		6042B0036042B0036042B003 /* ShortcutHintDebugSettingsBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutHintDebugSettingsBindingTests.swift; sourceTree = "<group>"; };
@@ -2017,6 +2053,10 @@
 				A5001290 /* MarkdownUI in Frameworks */,
 				A5001270 /* PostHog in Frameworks */,
 				BA2900040000000000000001 /* RegattaBrain in Frameworks */,
+				BA2902040000000000000001 /* RegattaCore in Frameworks */,
+				BA2910040000000000000001 /* RegattaFleet in Frameworks */,
+				BA2912040000000000000001 /* RegattaGitHub in Frameworks */,
+				BA2911040000000000000001 /* RegattaLoopUI in Frameworks */,
 				BA2901040000000000000001 /* RegattaMemory in Frameworks */,
 				A5001250 /* Sentry in Frameworks */,
 				A5001230 /* Sparkle in Frameworks */,
@@ -2066,6 +2106,10 @@
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
 				C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
 				BA2900050000000000000001 /* RegattaBrain in Frameworks */,
+				BA2902050000000000000001 /* RegattaCore in Frameworks */,
+				BA2910050000000000000001 /* RegattaFleet in Frameworks */,
+				BA2912050000000000000001 /* RegattaGitHub in Frameworks */,
+				BA2911050000000000000001 /* RegattaLoopUI in Frameworks */,
 				BA2901050000000000000001 /* RegattaMemory in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
 			);
@@ -2756,6 +2800,18 @@
 				BA29000A0000000000000001 /* RegattaBrainLaunch+Claude.swift */,
 				BA2901070000000000000001 /* RegattaMemoryManager.swift */,
 				BA2901080000000000000001 /* RegattaMemoryViewModel.swift */,
+				BA2903010000000000000001 /* RegattaFleetManager.swift */,
+				BA2903020000000000000001 /* RegattaFleetViewModel.swift */,
+				BA2920050000000000000001 /* RegattaFleetSectionView.swift */,
+				BA2920020000000000000001 /* ShepherdCard.swift */,
+				BA2920030000000000000001 /* ShepherdCardModel.swift */,
+				BA2920010000000000000001 /* ShepherdActivityEntry.swift */,
+				BA2920040000000000000001 /* ShepherdFixLoopStatus.swift */,
+				BA2904010000000000000001 /* RegattaConcurrencySettings.swift */,
+				BA2903030000000000000001 /* FleetSectionView.swift */,
+				BA2905010000000000000001 /* RegattaSummonViewModel.swift */,
+				BA2904020000000000000001 /* RegattaSummonOverlayView.swift */,
+				BA2904030000000000000001 /* RegattaSummonManager.swift */,
 				11949C61F1374C0C800032DD /* RegattaRailView.swift */,
 				7DAD83CD129913FC97545C1E /* RegattaRailSection.swift */,
 				BA2900080000000000000001 /* RegattaBrainViewModel.swift */,
@@ -2989,6 +3045,8 @@
 				A423581158A70EF6CDFF358E /* RegattaFeatureFlagTests.swift */,
 				96F7B20A6E94CC93127FDF45 /* RegattaRailModeTests.swift */,
 				CEACCEBF195D4756BC432C79 /* RegattaBlueMatrixDefaultThemeTests.swift */,
+				BA2930010000000000000001 /* RegattaFleetViewModelActivityTests.swift */,
+				BA2930020000000000000001 /* ShepherdCardModelTests.swift */,
 				A11EAA000000000000000001 /* AppearanceSettingsTests.swift */,
 				6313FACE0000000000000001 /* PaneMemoryGuardrailTests.swift */,
 				C0DE10510000000000000002 /* MobileHostServiceSettingsTests.swift */,
@@ -3171,6 +3229,10 @@
 				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
 				BA2900020000000000000001 /* RegattaBrain */,
 				BA2901020000000000000001 /* RegattaMemory */,
+				BA2902020000000000000001 /* RegattaCore */,
+				BA2910020000000000000001 /* RegattaFleet */,
+				BA2911020000000000000001 /* RegattaLoopUI */,
+				BA2912020000000000000001 /* RegattaGitHub */,
 			);
 			productName = cmux;
 			productReference = A5001000 /* cmux.app */;
@@ -3265,6 +3327,10 @@
 				A5001262 /* Bonsplit */,
 				BA2900030000000000000001 /* RegattaBrain */,
 				BA2901030000000000000001 /* RegattaMemory */,
+				BA2902030000000000000001 /* RegattaCore */,
+				BA2910030000000000000001 /* RegattaFleet */,
+				BA2911030000000000000001 /* RegattaLoopUI */,
+				BA2912030000000000000001 /* RegattaGitHub */,
 			);
 			productName = cmuxTests;
 			productReference = F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */;
@@ -3354,6 +3420,10 @@
 				0C69E6A5FA9B0513E68DF443 /* XCLocalSwiftPackageReference "CMUXMobileCore" */,
 				BA2900010000000000000001 /* XCLocalSwiftPackageReference "RegattaBrain" */,
 				BA2901010000000000000001 /* XCLocalSwiftPackageReference "RegattaMemory" */,
+				BA2902010000000000000001 /* XCLocalSwiftPackageReference "RegattaCore" */,
+				BA2910010000000000000001 /* XCLocalSwiftPackageReference "RegattaFleet" */,
+				BA2911010000000000000001 /* XCLocalSwiftPackageReference "RegattaLoopUI" */,
+				BA2912010000000000000001 /* XCLocalSwiftPackageReference "RegattaGitHub" */,
 			);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -3725,6 +3795,7 @@
 					F11E52270000000000005227 /* FilePreviewWordWrapSettings.swift in Sources */,
 				A5001445A5001445A5001445 /* FilePreviewWorkspaceOpenSupport.swift in Sources */,
 				F1A0C0DE0000000000000002 /* FindTextFieldSupport.swift in Sources */,
+				BA2903060000000000000001 /* FleetSectionView.swift in Sources */,
 				F0C05170000000000000002 /* FocusHistory.swift in Sources */,
 				C4160A020000000000000001 /* FocusHistoryMenuInvalidator.swift in Sources */,
 				5E55400000000000000000D1 /* FocusStealingResponderConformances.swift in Sources */,
@@ -3838,12 +3909,19 @@
 				BA29000B0000000000000001 /* RegattaBrainLaunch+Claude.swift in Sources */,
 				BA29000D0000000000000001 /* RegattaBrainManager.swift in Sources */,
 				BA2900090000000000000001 /* RegattaBrainViewModel.swift in Sources */,
+				BA2904040000000000000001 /* RegattaConcurrencySettings.swift in Sources */,
 				E945A2454EB52903AA136DD0 /* RegattaFeatureFlag.swift in Sources */,
+				BA2903040000000000000001 /* RegattaFleetManager.swift in Sources */,
+				BA2920050000000000000002 /* RegattaFleetSectionView.swift in Sources */,
+				BA2903050000000000000001 /* RegattaFleetViewModel.swift in Sources */,
 				BA29010A0000000000000001 /* RegattaMemoryManager.swift in Sources */,
 				BA29010B0000000000000001 /* RegattaMemoryViewModel.swift in Sources */,
 				91DBE32A038E29038975A885 /* RegattaPlaceholderWindow.swift in Sources */,
 				7259911ECA21459664E535AA /* RegattaRailSection.swift in Sources */,
 				D4D05D372C00F1BF330A223F /* RegattaRailView.swift in Sources */,
+				BA2904030000000000000002 /* RegattaSummonManager.swift in Sources */,
+				BA2904020000000000000002 /* RegattaSummonOverlayView.swift in Sources */,
+				BA2904010000000000000002 /* RegattaSummonViewModel.swift in Sources */,
 				A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */,
 				EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */,
 				E30780000000000000000016 /* RemoteDropUploadError+LocalizedError.swift in Sources */,
@@ -3925,6 +4003,10 @@
 				A50019A0 /* SettingsNavigation.swift in Sources */,
 				A50019B0 /* SettingsSearchAliases.swift in Sources */,
 				D36090010000000000000001 /* SettingsWindowPresenter.swift in Sources */,
+				BA2920010000000000000002 /* ShepherdActivityEntry.swift in Sources */,
+				BA2920020000000000000002 /* ShepherdCard.swift in Sources */,
+				BA2920030000000000000002 /* ShepherdCardModel.swift in Sources */,
+				BA2920040000000000000002 /* ShepherdFixLoopStatus.swift in Sources */,
 				76027A12C93B4538BF22C71E /* ShortcutBareStartRouting.swift in Sources */,
 				125BAEF2FE3B454547B964D1 /* ShortcutHintPill.swift in Sources */,
 				6042C0046042C0046042C004 /* ShortcutHintTitlebarPolicy.swift in Sources */,
@@ -4344,6 +4426,7 @@
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
 				6B6345EC749A434FAC8F4440 /* RegattaBlueMatrixDefaultThemeTests.swift in Sources */,
 				B2A2438A53E8224EAA45107C /* RegattaFeatureFlagTests.swift in Sources */,
+				BA2930010000000000000002 /* RegattaFleetViewModelActivityTests.swift in Sources */,
 				6E88CF3593A8306CBF7E714A /* RegattaRailModeTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
 				REE0CA0000000000000000B2 /* RemotesClientTests.swift in Sources */,
@@ -4376,6 +4459,7 @@
 				D36090010000000000000003 /* SettingsWindowPresenterTests.swift in Sources */,
 				C0F16A000000000000000001 /* ShellStartupMatrixTests.swift in Sources */,
 				C0F16C000000000000000001 /* ShellStartupMissingBundleTests.swift in Sources */,
+				BA2930020000000000000002 /* ShepherdCardModelTests.swift in Sources */,
 				1521D55DC63D5E5FC4955E31 /* ShortcutAndCommandPaletteTests.swift in Sources */,
 				6042A0036042A0036042A003 /* ShortcutHintDebugSettingsBindingTests.swift in Sources */,
 				6042A0016042A0016042A001 /* ShortcutHintModifierPolicyTests.swift in Sources */,
@@ -4585,7 +4669,8 @@
 					Carbon,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.debug;
-				PRODUCT_NAME = "cmux DEV";
+				PRODUCT_MODULE_NAME = cmux_DEV;
+				PRODUCT_NAME = Regatta;
 				OTHER_SWIFT_FLAGS = (
 					"-Xllvm",
 					"-global-isel=0",
@@ -4632,7 +4717,8 @@
 					Carbon,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app;
-				PRODUCT_NAME = cmux;
+				PRODUCT_MODULE_NAME = cmux;
+				PRODUCT_NAME = Regatta;
 				SPARKLE_PUBLIC_KEY = "avjcgKibf1FTvhIjLBxhd+0HSpsXU4D0IGlVk8cgqRc=";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "cmux-Bridging-Header.h";
@@ -4759,7 +4845,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux DEV.app/Contents/MacOS/cmux DEV";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Regatta.app/Contents/MacOS/Regatta";
 				TEST_TARGET_NAME = cmux;
 			};
 			name = Debug;
@@ -4777,7 +4863,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux.app/Contents/MacOS/cmux";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Regatta.app/Contents/MacOS/Regatta";
 				TEST_TARGET_NAME = cmux;
 			};
 			name = Release;
@@ -5013,6 +5099,22 @@
 		BA2901010000000000000001 /* XCLocalSwiftPackageReference "RegattaMemory" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/RegattaMemory;
+		};
+		BA2902010000000000000001 /* XCLocalSwiftPackageReference "RegattaCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/RegattaCore;
+		};
+		BA2910010000000000000001 /* XCLocalSwiftPackageReference "RegattaFleet" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/RegattaFleet;
+		};
+		BA2911010000000000000001 /* XCLocalSwiftPackageReference "RegattaLoopUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/RegattaLoopUI;
+		};
+		BA2912010000000000000001 /* XCLocalSwiftPackageReference "RegattaGitHub" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/RegattaGitHub;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -5335,6 +5437,46 @@
 			isa = XCSwiftPackageProductDependency;
 			package = BA2901010000000000000001 /* XCLocalSwiftPackageReference "RegattaMemory" */;
 			productName = RegattaMemory;
+		};
+		BA2902020000000000000001 /* RegattaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BA2902010000000000000001 /* XCLocalSwiftPackageReference "RegattaCore" */;
+			productName = RegattaCore;
+		};
+		BA2902030000000000000001 /* RegattaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BA2902010000000000000001 /* XCLocalSwiftPackageReference "RegattaCore" */;
+			productName = RegattaCore;
+		};
+		BA2910020000000000000001 /* RegattaFleet */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BA2910010000000000000001 /* XCLocalSwiftPackageReference "RegattaFleet" */;
+			productName = RegattaFleet;
+		};
+		BA2910030000000000000001 /* RegattaFleet */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BA2910010000000000000001 /* XCLocalSwiftPackageReference "RegattaFleet" */;
+			productName = RegattaFleet;
+		};
+		BA2911020000000000000001 /* RegattaLoopUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BA2911010000000000000001 /* XCLocalSwiftPackageReference "RegattaLoopUI" */;
+			productName = RegattaLoopUI;
+		};
+		BA2911030000000000000001 /* RegattaLoopUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BA2911010000000000000001 /* XCLocalSwiftPackageReference "RegattaLoopUI" */;
+			productName = RegattaLoopUI;
+		};
+		BA2912020000000000000001 /* RegattaGitHub */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BA2912010000000000000001 /* XCLocalSwiftPackageReference "RegattaGitHub" */;
+			productName = RegattaGitHub;
+		};
+		BA2912030000000000000001 /* RegattaGitHub */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BA2912010000000000000001 /* XCLocalSwiftPackageReference "RegattaGitHub" */;
+			productName = RegattaGitHub;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

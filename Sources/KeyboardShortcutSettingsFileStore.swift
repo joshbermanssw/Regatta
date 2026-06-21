@@ -391,8 +391,26 @@ final class CmuxSettingsFileStore {
         if let shortcutsSection = root["shortcuts"] {
             parseShortcutsSection(shortcutsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let regattaSection = root["regatta"] as? [String: Any] {
+            parseRegattaSection(regattaSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
 
         return snapshot
+    }
+
+    private func parseRegattaSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if section.keys.contains("maxConcurrentWorkers") {
+            if let value = jsonInt(section["maxConcurrentWorkers"]), value >= 1 {
+                snapshot.managedUserDefaults[RegattaConcurrencySettings.maxConcurrentWorkersKey] =
+                    .int(RegattaConcurrencySettings.clamp(value))
+            } else {
+                logInvalid("regatta.maxConcurrentWorkers", sourcePath: sourcePath)
+            }
+        }
     }
     private func parseAppSection(
         _ section: [String: Any],
