@@ -184,7 +184,8 @@ public actor Fleet {
             phase: state.phase,
             checks: state.checks,
             reviewThreads: state.reviewThreads,
-            autonomyMode: mode
+            autonomyMode: mode,
+            needsAttention: state.needsAttention
         )
     }
 

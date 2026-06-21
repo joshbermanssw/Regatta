@@ -338,6 +338,7 @@ private struct WorkerRow: View {
         case .running:   return .blue
         case .done:      return .green
         case .failed:    return .red
+        case .blocked:   return .yellow
         case .cancelled: return .orange
         case .interrupted: return .yellow
         }
@@ -354,6 +355,11 @@ private struct WorkerRow: View {
         case .failed(let reason):
             return String.localizedStringWithFormat(
                 String(localized: "regatta.fleet.status.failed", defaultValue: "Failed: %@"),
+                reason
+            )
+        case .blocked(let reason):
+            return String.localizedStringWithFormat(
+                String(localized: "regatta.fleet.status.blocked", defaultValue: "Blocked: %@"),
                 reason
             )
         case .cancelled:

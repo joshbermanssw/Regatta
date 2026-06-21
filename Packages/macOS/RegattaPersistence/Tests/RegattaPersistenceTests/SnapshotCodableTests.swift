@@ -39,11 +39,24 @@ import RegattaFleet
         .running,
         .done,
         .failed("reason"),
+        .blocked("worktree conflict — resolve manually"),
         .cancelled,
         .interrupted,
     ])
     func workerStatusRoundTrips(_ status: WorkerStatus) throws {
         #expect(try roundTrip(status) == status)
+    }
+
+    /// The #35 `blocked` state must round-trip *as* `blocked` (not be dropped or
+    /// coerced to another case), because it is a human-resolution state whose
+    /// reason has to reappear after a restart.
+    @Test func blockedWorkerStatusPreservesReason() throws {
+        let decoded = try roundTrip(WorkerStatus.blocked("merge conflict in main.swift"))
+        guard case let .blocked(reason) = decoded else {
+            Issue.record("expected .blocked, got \(decoded)")
+            return
+        }
+        #expect(reason == "merge conflict in main.swift")
     }
 
     // MARK: - Loop
@@ -112,6 +125,46 @@ import RegattaFleet
     }
 
     // MARK: - Shepherd
+
+    @Test(arguments: [
+        ShepherdPollPhase.starting,
+        .watching,
+        .failed("rate limited"),
+        .paused(reason: "gh auth expired", retryAfter: .seconds(60)),
+    ])
+    func shepherdPollPhaseRoundTrips(_ phase: ShepherdPollPhase) throws {
+        #expect(try roundTrip(phase) == phase)
+    }
+
+    /// The #35 `paused` phase carries a `Duration`, which has no native Codable
+    /// form. Persistence serializes it as total seconds; this proves the value
+    /// survives a round-trip including a fractional second.
+    @Test func pausedPhasePreservesReasonAndBackoff() throws {
+        let phase = ShepherdPollPhase.paused(reason: "secondary rate limit", retryAfter: .seconds(12.5))
+        let decoded = try roundTrip(phase)
+        guard case let .paused(reason, retryAfter) = decoded else {
+            Issue.record("expected .paused, got \(decoded)")
+            return
+        }
+        #expect(reason == "secondary rate limit")
+        #expect(retryAfter == .seconds(12.5))
+    }
+
+    /// The #35 `needsAttention` flag must survive a shepherd-state round-trip so
+    /// the "needs attention" banner reappears after a restart.
+    @Test func shepherdStateRoundTripsNeedsAttentionAndPaused() throws {
+        let pr = PullRequestRef(owner: "joshbermanssw", repo: "regatta", number: 35)
+        let state = ShepherdState(
+            pullRequest: pr,
+            phase: .paused(reason: "gh rate limited", retryAfter: .seconds(90)),
+            autonomyMode: .staged,
+            needsAttention: "ci-fix loop hit its cap without CI going green"
+        )
+        let decoded = try roundTrip(state)
+        #expect(decoded == state)
+        #expect(decoded.needsAttention == "ci-fix loop hit its cap without CI going green")
+        #expect(decoded.phase == .paused(reason: "gh rate limited", retryAfter: .seconds(90)))
+    }
 
     @Test func shepherdStateRoundTrips() throws {
         let pr = PullRequestRef(owner: "joshbermanssw", repo: "regatta", number: 34)

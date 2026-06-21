@@ -33,6 +33,14 @@ public struct ShepherdState: Sendable, Equatable, Identifiable, FleetEntry {
     /// through the ``Fleet`` to the shared ``AutonomyGate``.
     public let autonomyMode: AutonomyMode
 
+    /// A human-resolution flag set when the shepherd gave up automating a PR —
+    /// e.g. the ci-fix loop hit its cap without CI going green (issue #35). While
+    /// set, the shepherd stops auto-pushing fixes and the card surfaces a "needs
+    /// attention" banner with this reason. `nil` when the shepherd is operating
+    /// normally. Additive so #34's persistence layer can store it without
+    /// reshaping the state.
+    public let needsAttention: String?
+
     /// Stable Fleet identity, derived from the PR reference.
     public var id: String { pullRequest.id }
 
@@ -56,17 +64,20 @@ public struct ShepherdState: Sendable, Equatable, Identifiable, FleetEntry {
     ///   - reviewThreads: The latest review threads. Defaults to empty.
     ///   - autonomyMode: The per-PR autonomy policy. Defaults to
     ///     ``AutonomyMode/staged`` (the #32 safety default for new handoffs).
+    ///   - needsAttention: The human-resolution reason, or `nil` (issue #35).
     public init(
         pullRequest: PullRequestRef,
         phase: ShepherdPollPhase,
         checks: PRCheckSummary = PRCheckSummary(checks: []),
         reviewThreads: [ReviewThread] = [],
-        autonomyMode: AutonomyMode = .staged
+        autonomyMode: AutonomyMode = .staged,
+        needsAttention: String? = nil
     ) {
         self.pullRequest = pullRequest
         self.phase = phase
         self.checks = checks
         self.reviewThreads = reviewThreads
         self.autonomyMode = autonomyMode
+        self.needsAttention = needsAttention
     }
 }

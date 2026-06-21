@@ -21,11 +21,20 @@ import RegattaCore
     @Test(arguments: [
         WorkerStatus.done,
         WorkerStatus.failed("x"),
+        WorkerStatus.blocked("worktree conflict"),
         WorkerStatus.cancelled,
         WorkerStatus.interrupted,
     ])
     func nonLiveWorkersKeepStatus(_ status: WorkerStatus) {
         #expect(planner.restoredWorkerStatus(from: status) == status)
+    }
+
+    /// A #35 `blocked` worker is a human-resolution state and is preserved
+    /// verbatim on restore (not coerced to `interrupted`), so its reason and
+    /// banner reappear after a restart.
+    @Test func blockedWorkerKeepsStatusWithReason() {
+        let restored = planner.restoredWorkerStatus(from: .blocked("merge conflict"))
+        #expect(restored == .blocked("merge conflict"))
     }
 
     @Test func restoredWorkersAppliesRuleAcrossSnapshot() {

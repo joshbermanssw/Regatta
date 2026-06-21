@@ -18,6 +18,12 @@ public import RegattaCore
 /// it. Terminal workers (`done`, `failed`, `cancelled`) keep their status, and an
 /// already-`interrupted` worker stays interrupted.
 ///
+/// A ``RegattaCore/WorkerStatus/blocked(_:)`` worker (issue #35) is preserved
+/// verbatim on restore rather than coerced to `interrupted`: it is a
+/// human-resolution state whose work product (worktree, branch) is intact, so the
+/// blocked banner and its reason must reappear after a restart for the human to
+/// act on.
+///
 /// ## Loop restore rule
 ///
 /// A loop's configuration and full iteration history are restored verbatim, but a
@@ -34,12 +40,14 @@ public struct RegattaRestorePlanner: Sendable {
     ///
     /// - Parameter status: The persisted last-known status.
     /// - Returns: ``RegattaCore/WorkerStatus/interrupted`` for a previously-live
-    ///   worker; the original status otherwise.
+    ///   worker; the original status otherwise (terminal statuses, an already
+    ///   `interrupted` worker, and a `blocked` worker awaiting human resolution
+    ///   are all preserved verbatim).
     public func restoredWorkerStatus(from status: WorkerStatus) -> WorkerStatus {
         switch status {
         case .queued, .running:
             return .interrupted
-        case .done, .failed, .cancelled, .interrupted:
+        case .done, .failed, .blocked, .cancelled, .interrupted:
             return status
         }
     }

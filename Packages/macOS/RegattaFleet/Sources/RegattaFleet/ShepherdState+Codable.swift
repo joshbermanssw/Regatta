@@ -12,6 +12,12 @@ internal import RegattaGitHub
 /// On restore the shepherd resumes polling automatically (PR shepherds are
 /// event-driven, not process-backed), so this persisted snapshot is only the
 /// *seed* shown until the first fresh poll completes.
+///
+/// The ``ShepherdState/needsAttention`` human-resolution flag added by issue #35
+/// is persisted and restored: it marks a PR the shepherd gave up automating, so
+/// the "needs attention" banner and its reason must reappear after a restart. It
+/// decodes with `decodeIfPresent` so snapshots written before #35 (no key) still
+/// load, defaulting to `nil`.
 extension ShepherdState: Codable {
     private enum CodingKeys: String, CodingKey {
         case pullRequest
@@ -19,6 +25,7 @@ extension ShepherdState: Codable {
         case checks
         case reviewThreads
         case autonomyMode
+        case needsAttention
     }
 
     public init(from decoder: any Decoder) throws {
@@ -31,12 +38,14 @@ extension ShepherdState: Codable {
             ?? []
         let autonomyMode = try container.decodeIfPresent(AutonomyMode.self, forKey: .autonomyMode)
             ?? .staged
+        let needsAttention = try container.decodeIfPresent(String.self, forKey: .needsAttention)
         self.init(
             pullRequest: pullRequest,
             phase: phase,
             checks: checks,
             reviewThreads: reviewThreads,
-            autonomyMode: autonomyMode
+            autonomyMode: autonomyMode,
+            needsAttention: needsAttention
         )
     }
 
@@ -47,5 +56,6 @@ extension ShepherdState: Codable {
         try container.encode(checks, forKey: .checks)
         try container.encode(reviewThreads, forKey: .reviewThreads)
         try container.encode(autonomyMode, forKey: .autonomyMode)
+        try container.encodeIfPresent(needsAttention, forKey: .needsAttention)
     }
 }

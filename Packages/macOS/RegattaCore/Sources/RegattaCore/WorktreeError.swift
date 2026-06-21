@@ -17,6 +17,32 @@ public enum WorktreeError: Error, CustomStringConvertible {
     /// A git command exited with a non-zero status.
     case gitCommandFailed(command: String, exitCode: Int32, stderr: String)
 
+    /// Whether this error represents a *recoverable worktree conflict* a human is
+    /// expected to resolve, rather than an outright failure (issue #35).
+    ///
+    /// A conflict is one where the work product is intact and colliding with
+    /// existing state: an already-tracked worktree for the worker, a dirty
+    /// worktree that refused force-free cleanup, or a `git worktree add` / branch
+    /// collision (e.g. the target path or branch already exists). The orchestrator
+    /// parks such a worker as ``WorkerStatus/blocked(_:)`` for human resolution
+    /// instead of marking it ``WorkerStatus/failed(_:)``, so no data is lost.
+    public var isConflict: Bool {
+        switch self {
+        case .worktreeAlreadyExists, .worktreeDirty:
+            return true
+        case .gitCommandFailed(let command, _, let stderr):
+            // `git worktree add` collisions and branch-already-exists are
+            // conflicts a human resolves; other git failures are genuine errors.
+            let lowered = stderr.lowercased()
+            let collided = lowered.contains("already exists")
+                || lowered.contains("already used by worktree")
+                || lowered.contains("is already checked out")
+            return command == "worktree" || collided
+        case .notAGitRepository, .noWorktreeForWorker:
+            return false
+        }
+    }
+
     public var description: String {
         switch self {
         case .notAGitRepository:

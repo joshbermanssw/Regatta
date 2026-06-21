@@ -11,9 +11,18 @@ import RegattaFleet
     private let decoder = JSONDecoder()
 
     @Test func unknownWorkerStatusDecodesToInterrupted() throws {
-        let json = Data(#"{"kind":"blocked"}"#.utf8)
+        // A genuinely-unknown future kind falls back to the neutral restore state.
+        let json = Data(#"{"kind":"hibernating"}"#.utf8)
         let status = try decoder.decode(WorkerStatus.self, from: json)
         #expect(status == .interrupted)
+    }
+
+    /// After the #35 reconcile, `blocked` is a first-class case and must decode to
+    /// `.blocked` (with its reason), not fall back to `.interrupted`.
+    @Test func blockedWorkerStatusDecodesToBlocked() throws {
+        let json = Data(#"{"kind":"blocked","reason":"worktree conflict"}"#.utf8)
+        let status = try decoder.decode(WorkerStatus.self, from: json)
+        #expect(status == .blocked("worktree conflict"))
     }
 
     @Test func unknownLoopStatusDecodesToIdle() throws {
@@ -43,8 +52,25 @@ import RegattaFleet
     }
 
     @Test func unknownShepherdPhaseDecodesToStarting() throws {
-        let json = Data(#"{"kind":"paused"}"#.utf8)
+        // A genuinely-unknown future kind falls back to `.starting`.
+        let json = Data(#"{"kind":"hibernating"}"#.utf8)
         let phase = try decoder.decode(ShepherdPollPhase.self, from: json)
         #expect(phase == .starting)
+    }
+
+    /// After the #35 reconcile, `paused` is a first-class case carrying a backoff
+    /// `Duration` (serialized as seconds), and must decode to `.paused`.
+    @Test func pausedShepherdPhaseDecodesToPaused() throws {
+        let json = Data(#"{"kind":"paused","message":"rate limited","retryAfterSeconds":30}"#.utf8)
+        let phase = try decoder.decode(ShepherdPollPhase.self, from: json)
+        #expect(phase == .paused(reason: "rate limited", retryAfter: .seconds(30)))
+    }
+
+    /// A pre-#35 `paused` snapshot missing `retryAfterSeconds` still decodes (the
+    /// backoff defaults to zero) rather than throwing.
+    @Test func pausedShepherdPhaseToleratesMissingBackoff() throws {
+        let json = Data(#"{"kind":"paused","message":"rate limited"}"#.utf8)
+        let phase = try decoder.decode(ShepherdPollPhase.self, from: json)
+        #expect(phase == .paused(reason: "rate limited", retryAfter: .seconds(0)))
     }
 }
