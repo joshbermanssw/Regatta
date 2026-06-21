@@ -26,6 +26,10 @@ final class RegattaBrainViewModel {
     /// Current session status, reflected in the chat UI chrome.
     private(set) var status: BrainStatus = .idle
 
+    /// The currently-attached workspace tab context, shown as a removable chip
+    /// above the composer. `nil` means no context is attached.
+    var attachedContext: AttachedTabContext?
+
     // MARK: - Private non-observable state
 
     /// The actor that owns the subprocess. `@ObservationIgnored` because it is
@@ -79,6 +83,11 @@ final class RegattaBrainViewModel {
 
     /// Sends a user message to the brain. Trims whitespace; ignores blank input.
     ///
+    /// If ``attachedContext`` is set, a compact `[context]` block is prepended
+    /// to the message text so the brain knows the active repo, branch, and PR.
+    /// The ``attachedContext`` is NOT cleared after sending — the user removes
+    /// it explicitly via the chip's dismiss button.
+    ///
     /// The session owns the transcript. After `send` returns, ``messages`` is
     /// refreshed from the actor so the user bubble and subsequent assistant
     /// reply appear in order.
@@ -86,12 +95,36 @@ final class RegattaBrainViewModel {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let session else { return }
         status = .thinking
+        let payload = messagePayload(for: trimmed, context: attachedContext)
         Task {
-            try? await session.send(trimmed)
+            try? await session.send(payload)
             // Re-pull the transcript from the session to stay authoritative.
             let pulled = await session.messages()
             self.messages = pulled
         }
+    }
+
+    // MARK: - Private helpers
+
+    /// Builds the final string sent to the brain, optionally prepending an
+    /// attached-context block.
+    ///
+    /// - Parameters:
+    ///   - text: The trimmed user message.
+    ///   - context: The attached workspace context, or `nil`.
+    /// - Returns: The text to pass to the brain session.
+    private func messagePayload(for text: String, context: AttachedTabContext?) -> String {
+        guard let ctx = context else { return text }
+        var parts: [String] = []
+        parts.append("repo: \(ctx.currentDirectory)")
+        if let branch = ctx.gitBranch {
+            parts.append("branch: \(branch)")
+        }
+        if let pr = ctx.pullRequest {
+            parts.append("PR: #\(pr.number) (\(pr.label))")
+        }
+        let block = "[context] \(parts.joined(separator: ", "))"
+        return "\(block)\n\n\(text)"
     }
 
     /// Cancels the event-consuming task and terminates the subprocess. Idempotent.

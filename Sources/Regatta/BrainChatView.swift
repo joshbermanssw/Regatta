@@ -10,8 +10,21 @@ import RegattaBrain
 /// `messages` is read from the `@Observable` view-model at this level and
 /// passed as **value snapshots** into ``BrainMessageRow`` — no observable
 /// store reference escapes the `LazyVStack` / `ForEach` boundary.
+///
+/// ## Attach-tab context
+/// Pass a `contextProvider` closure that returns the active workspace's
+/// ``AttachedTabContext`` when tapped. The closure is called lazily inside a
+/// `Button` action (never from `body`), so it is safe with Swift 6
+/// `@MainActor` isolation.
 struct BrainChatView: View {
     let viewModel: RegattaBrainViewModel
+    /// Returns the current workspace context when the "＋ Attach tab" button
+    /// is tapped. Pass `nil` (or a closure returning `nil`) when no workspace
+    /// context is available.
+    ///
+    /// The closure is `@MainActor`-isolated because `TabManager.selectedWorkspace`
+    /// (the source of truth) is also main-actor-bound.
+    let contextProvider: (@MainActor () -> AttachedTabContext?)?
 
     @State private var inputText: String = ""
 
@@ -19,6 +32,7 @@ struct BrainChatView: View {
         VStack(spacing: 0) {
             statusBanner
             messageList
+            contextChip
             inputRow
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -117,12 +131,91 @@ struct BrainChatView: View {
         .padding(.vertical, 4)
     }
 
+    // MARK: - Context chip
+
+    /// A dismissible chip row that appears above the input row when a
+    /// workspace context has been attached. Disappears when the user taps ✕.
+    @ViewBuilder
+    private var contextChip: some View {
+        // Snapshot the context at the BrainChatView level — never read the
+        // @Observable store inside a conditional expression that runs on
+        // every body evaluation.
+        let ctx: AttachedTabContext? = viewModel.attachedContext
+        if let ctx {
+            HStack(spacing: 4) {
+                Image(systemName: "paperclip")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                Text(contextChipLabel(for: ctx))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+                Button {
+                    // Capture in action — never mutate state from body.
+                    viewModel.attachedContext = nil
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    String(localized: "brain.attach.chip.remove.a11y", defaultValue: "Remove attached context")
+                )
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Color.accentColor.opacity(0.08))
+        }
+    }
+
+    /// Builds the display label for the context chip.
+    private func contextChipLabel(for ctx: AttachedTabContext) -> String {
+        let repoName = URL(fileURLWithPath: ctx.currentDirectory).lastPathComponent
+        var parts: [String] = [repoName]
+        if let branch = ctx.gitBranch {
+            parts.append(branch)
+        }
+        if let pr = ctx.pullRequest {
+            parts.append("PR #\(pr.number)")
+        }
+        return parts.joined(separator: " · ")
+    }
+
     // MARK: - Input row
 
     private var inputRow: some View {
         VStack(spacing: 0) {
             Divider()
             HStack(spacing: 6) {
+                // "＋ Attach tab" affordance — only shown when a context
+                // provider is available and no context is already attached.
+                if contextProvider != nil, viewModel.attachedContext == nil {
+                    Button {
+                        // Capture context in the action, never in body.
+                        if let ctx = contextProvider?() {
+                            viewModel.attachedContext = ctx
+                        }
+                    } label: {
+                        Label(
+                            String(localized: "brain.attach.tab.label", defaultValue: "＋ Attach tab"),
+                            systemImage: "plus.circle"
+                        )
+                        .labelStyle(.titleOnly)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        String(localized: "brain.attach.tab.a11y", defaultValue: "Attach active tab context")
+                    )
+                    .help(String(localized: "brain.attach.tab.tooltip", defaultValue: "Attach the active tab's repo, branch, and PR to the next message"))
+                    Divider()
+                        .frame(height: 14)
+                }
+
                 TextField(
                     String(localized: "brain.chat.input.placeholder", defaultValue: "Message Brain…"),
                     text: $inputText,

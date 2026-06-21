@@ -487,7 +487,7 @@ struct RightSidebarPanelView: View {
             case .dock:
                 DockPanelView(rootDirectory: dockRootDirectory, workspaceId: workspaceId, store: dockStore)
             case .regatta:
-                RegattaRailView()
+                RegattaRailView(contextProvider: activeTabContext)
             }
         } else {
             Color.clear
@@ -496,6 +496,31 @@ struct RightSidebarPanelView: View {
 
     private var sessionIndexDirectory: String? {
         sessionIndexStore.currentDirectory
+    }
+
+    /// A closure that, when called, returns a read-only snapshot of the
+    /// currently-selected workspace's context for the Brain attach-tab
+    /// affordance. The closure reads `tabManager.selectedWorkspace` at call
+    /// time (inside a button action on the main actor) rather than eagerly, so
+    /// the snapshot is always fresh when the user taps the button.
+    ///
+    /// The property itself is implicitly `@MainActor`-isolated (it lives on a
+    /// SwiftUI `View` body); the closure is typed `@MainActor` so callers know
+    /// they must be on the main actor.
+    private var activeTabContext: @MainActor () -> AttachedTabContext? {
+        // `tabManager` is a class reference; capture by reference so the
+        // closure always reads the live selected workspace at call time.
+        let ref = tabManager
+        return {
+            guard let workspace = ref.selectedWorkspace else { return nil }
+            let dir = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !dir.isEmpty else { return nil }
+            let branch = workspace.gitBranch?.branch
+            let pr = workspace.pullRequest.map { prState in
+                AttachedTabPullRequest(number: prState.number, label: prState.label)
+            }
+            return AttachedTabContext(currentDirectory: dir, gitBranch: branch, pullRequest: pr)
+        }
     }
 
     private var dockRootDirectory: String? {
