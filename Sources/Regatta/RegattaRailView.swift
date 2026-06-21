@@ -22,7 +22,7 @@ struct RegattaRailView: View {
                     title: String(localized: "regatta.rail.section.fleet", defaultValue: "Fleet"),
                     symbolName: "sailboat"
                 ) {
-                    placeholder
+                    RegattaFleetSectionView()
                 }
 
                 RegattaRailSection(
@@ -42,15 +42,5 @@ struct RegattaRailView: View {
             // brain session on app quit.
             RegattaBrainManager.shared.viewModel = brainViewModel
         }
-    }
-
-    /// Subtle empty-state placeholder shown under sections not yet implemented.
-    private var placeholder: some View {
-        Text(String(localized: "regatta.rail.section.placeholder", defaultValue: "Coming soon"))
-            .font(.system(size: 11))
-            .foregroundStyle(.tertiary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
     }
 }
