@@ -45,6 +45,10 @@ actor FakePaneBridge: PaneBridge {
 
     /// All specs passed to ``spawn(_:)`` in order.
     private(set) var spawnedSpecs: [PaneSpec] = []
+    /// All handle IDs handed back from ``spawn(_:)`` in order (parallel to
+    /// ``spawnedSpecs``), so a test can drive a specific controlled handle to
+    /// completion by spawn index.
+    private(set) var spawnedIDs: [PaneHandle.ID] = []
     /// All IDs passed to ``terminate(_:)`` in order.
     private(set) var terminatedIDs: [PaneHandle.ID] = []
 
@@ -60,6 +64,7 @@ actor FakePaneBridge: PaneBridge {
         }
 
         let id = PaneHandle.ID()
+        spawnedIDs.append(id)
         var capturedContinuation: AsyncStream<PaneOutputEvent>.Continuation!
         let stream = AsyncStream<PaneOutputEvent> { continuation in
             capturedContinuation = continuation
@@ -101,5 +106,20 @@ actor FakePaneBridge: PaneBridge {
     /// Returns the controller for a previously spawned controlled handle.
     func controller(for id: PaneHandle.ID) -> Controller? {
         controllers[id].map(Controller.init)
+    }
+
+    /// Drives the controlled handle spawned at `index` (in spawn order) to a clean
+    /// exit, so the orchestrator sees it complete and can free its slot.
+    ///
+    /// - Returns: `true` if a live controlled handle existed at that index.
+    @discardableResult
+    func finishControlledHandle(at index: Int, code: Int32 = 0) -> Bool {
+        guard index < spawnedIDs.count else { return false }
+        let id = spawnedIDs[index]
+        guard let continuation = controllers.removeValue(forKey: id) else { return false }
+        running.remove(id)
+        continuation.yield(.terminated(code))
+        continuation.finish()
+        return true
     }
 }
