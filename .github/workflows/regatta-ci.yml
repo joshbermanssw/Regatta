@@ -172,6 +172,7 @@ jobs:
           [ -f cmuxTests/RegattaFeatureFlagTests.swift ] && SUITES+=("cmuxTests/RegattaFeatureFlagTests")
           [ -f cmuxTests/Regatta/RegattaRailModeTests.swift ] && SUITES+=("cmuxTests/RegattaRailModeTests")
           [ -f cmuxTests/Regatta/RegattaBlueMatrixDefaultThemeTests.swift ] && SUITES+=("cmuxTests/RegattaBlueMatrixDefaultThemeTests")
+          [ -f cmuxTests/Regatta/OrchestratorWorkerSpawnerTests.swift ] && SUITES+=("cmuxTests/OrchestratorWorkerSpawnerTests")
           if [ "${#SUITES[@]}" -eq 0 ]; then
             echo "No Regatta test suites present on this branch; build-for-testing was the gate."
             exit 0
