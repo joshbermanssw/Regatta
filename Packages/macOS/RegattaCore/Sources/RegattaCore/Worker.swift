@@ -19,6 +19,10 @@ public struct Worker: Identifiable, Sendable, Equatable {
     /// The current lifecycle status, reflected by the row's status dot.
     public let status: WorkerStatus
 
+    /// The CLI agent provider this worker is running (issue #36), surfaced in the
+    /// Fleet UI so the chosen agent is visible on the worker.
+    public let providerID: AgentProviderID
+
     /// Creates a `Worker` snapshot.
     ///
     /// - Parameters:
@@ -26,11 +30,20 @@ public struct Worker: Identifiable, Sendable, Equatable {
     ///   - name: The human-readable name shown in the Fleet list.
     ///   - prompt: The goal/prompt the worker was given.
     ///   - status: The current lifecycle status.
-    public init(id: UUID, name: String, prompt: String, status: WorkerStatus) {
+    ///   - providerID: The CLI agent provider the worker is running. Defaults to
+    ///     ``AgentProviderID/default``.
+    public init(
+        id: UUID,
+        name: String,
+        prompt: String,
+        status: WorkerStatus,
+        providerID: AgentProviderID = .default
+    ) {
         self.id = id
         self.name = name
         self.prompt = prompt
         self.status = status
+        self.providerID = providerID
     }
 
     /// Returns a copy of this snapshot with a new status.
@@ -38,6 +51,6 @@ public struct Worker: Identifiable, Sendable, Equatable {
     /// - Parameter newStatus: The status for the returned snapshot.
     /// - Returns: A copy identical except for ``status``.
     public func withStatus(_ newStatus: WorkerStatus) -> Worker {
-        Worker(id: id, name: name, prompt: prompt, status: newStatus)
+        Worker(id: id, name: name, prompt: prompt, status: newStatus, providerID: providerID)
     }
 }

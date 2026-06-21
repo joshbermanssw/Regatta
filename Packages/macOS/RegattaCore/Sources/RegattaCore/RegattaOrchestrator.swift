@@ -98,7 +98,13 @@ public actor RegattaOrchestrator {
     @discardableResult
     public func spawnWorker(_ spec: WorkerSpec) -> UUID {
         let id = UUID()
-        let worker = Worker(id: id, name: spec.name, prompt: spec.prompt, status: .queued)
+        let worker = Worker(
+            id: id,
+            name: spec.name,
+            prompt: spec.prompt,
+            status: .queued,
+            providerID: spec.providerID
+        )
         records[id] = WorkerRecord(worker: worker, paneID: nil, observeTask: nil)
         order.append(id)
         broadcast()

@@ -205,6 +205,64 @@ struct RegattaOrchestratorTests {
         }
     }
 
+    // MARK: - provider recorded + surfaced on the worker
+
+    @Test("a worker spawned with the Codex provider records and surfaces that provider, launched via the same Pane Bridge path")
+    func providerRecordedOnWorker() async throws {
+        let repo = try makeFixtureRepo()
+        let base = makeBaseDir()
+        defer {
+            try? FileManager.default.removeItem(at: repo)
+            try? FileManager.default.removeItem(at: base)
+        }
+
+        let bridge = FakePaneBridge(behavior: .autoExit(0))
+        let orchestrator = RegattaOrchestrator(
+            worktreeManager: RegattaWorktreeManager(baseDirectory: base),
+            paneBridge: bridge
+        )
+
+        let codexSpec = WorkerSpec(
+            name: "Codex worker",
+            prompt: "do the thing",
+            repoURL: repo,
+            provider: CodexProvider()
+        )
+        let id = await orchestrator.spawnWorker(codexSpec)
+
+        // Provider is surfaced on the worker snapshot immediately.
+        let initial = await orchestrator.workers()
+        #expect(initial.first(where: { $0.id == id })?.providerID == .codex)
+
+        let done = await waitForStatus(orchestrator, id: id) { $0 == .done }
+        #expect(done?.providerID == .codex)
+
+        // Codex launched through the same Pane Bridge spawn path.
+        let specs = await bridge.spawnedSpecs
+        #expect(specs.count == 1)
+        #expect(specs.first?.arguments.first == "codex")
+        #expect(specs.first?.arguments.contains("exec") == true)
+        #expect(specs.first?.arguments.last == "do the thing")
+    }
+
+    @Test("a worker spawned without an explicit provider defaults to Claude Code")
+    func defaultProviderRecordedOnWorker() async throws {
+        let repo = try makeFixtureRepo()
+        let base = makeBaseDir()
+        defer {
+            try? FileManager.default.removeItem(at: repo)
+            try? FileManager.default.removeItem(at: base)
+        }
+
+        let orchestrator = RegattaOrchestrator(
+            worktreeManager: RegattaWorktreeManager(baseDirectory: base),
+            paneBridge: FakePaneBridge(behavior: .autoExit(0))
+        )
+        let id = await orchestrator.spawnWorker(spec(repoURL: repo))
+        let initial = await orchestrator.workers()
+        #expect(initial.first(where: { $0.id == id })?.providerID == .claudeCode)
+    }
+
     // MARK: - multiple workers appear in spawn order
 
     @Test("multiple spawned workers appear in the Fleet snapshot in spawn order")
