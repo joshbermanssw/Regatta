@@ -62,15 +62,28 @@ struct RegattaErrorHandlingTests {
         )
     }
 
+    /// Polls the orchestrator's worker snapshot (a finite read, not the infinite
+    /// `updates()` stream) until `predicate` holds or `timeout` elapses.
+    ///
+    /// Polling a snapshot — rather than iterating `updates()` — means a state
+    /// where the target status never arrives returns `nil` promptly instead of
+    /// parking forever inside an `AsyncStream` `for await` that no cancellation can
+    /// interrupt (the AsyncStream-hang class `TestTimeout` warns about). This keeps
+    /// the two-commit red structure fail-fast on CI rather than hanging the
+    /// 15-minute budget.
     private func waitForStatus(
         _ orchestrator: RegattaOrchestrator,
         id: UUID,
+        timeout: Duration = .seconds(8),
         where predicate: @escaping @Sendable (WorkerStatus) -> Bool
     ) async -> Worker? {
-        for await snap in await orchestrator.updates() {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            let snap = await orchestrator.workers()
             if let worker = snap.first(where: { $0.id == id }), predicate(worker.status) {
                 return worker
             }
+            try? await Task.sleep(for: .milliseconds(20))
         }
         return nil
     }
@@ -117,8 +130,12 @@ struct RegattaErrorHandlingTests {
         #expect(reason.contains("7"))
 
         // The brain was notified (the orchestrator notifies on a detached task,
-        // so await the arrival) with the retained output and failed-iteration flag.
-        let completion = await observer.firstCompletion()
+        // so poll for the arrival) with the retained output and failed-iteration
+        // flag. Bounded so a regression that drops the notification fails fast.
+        guard let completion = await observer.firstCompletion() else {
+            Issue.record("brain was not notified of the crashed worker")
+            return
+        }
         let completions = await observer.completions
         #expect(completions.count == 1)
         #expect(completion.id == id)
@@ -178,7 +195,10 @@ struct RegattaErrorHandlingTests {
         #expect(blocked?.status.isCancellable == true)
 
         // The brain is notified, but a blocked worker is NOT a failed iteration.
-        let completion = await observer.firstCompletion()
+        guard let completion = await observer.firstCompletion() else {
+            Issue.record("brain was not notified of the blocked worker")
+            return
+        }
         let completions = await observer.completions
         #expect(completions.count == 1)
         #expect(completion.isFailedIteration == false)
@@ -194,18 +214,20 @@ struct RegattaErrorHandlingTests {
 /// load).
 actor RecordingWorkerObserver: WorkerObserver {
     private(set) var completions: [WorkerCompletion] = []
-    private var waiters: [CheckedContinuation<WorkerCompletion, Never>] = []
 
     func workerDidComplete(_ completion: WorkerCompletion) async {
         completions.append(completion)
-        let pending = waiters
-        waiters.removeAll()
-        for waiter in pending { waiter.resume(returning: completion) }
     }
 
-    /// Awaits the first completion, returning immediately if one already arrived.
-    func firstCompletion() async -> WorkerCompletion {
-        if let first = completions.first { return first }
-        return await withCheckedContinuation { waiters.append($0) }
+    /// Polls for the first completion, returning `nil` if none arrives within
+    /// `timeout`. Bounded so a state where the observer is never notified fails
+    /// fast instead of parking forever.
+    func firstCompletion(timeout: Duration = .seconds(5)) async -> WorkerCompletion? {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if let first = completions.first { return first }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return completions.first
     }
 }
