@@ -13,9 +13,15 @@ let package = Package(
             targets: ["RegattaBrain"]
         ),
     ],
+    dependencies: [
+        .package(path: "../RegattaCore"),
+    ],
     targets: [
         .target(
             name: "RegattaBrain",
+            dependencies: [
+                .product(name: "RegattaCore", package: "RegattaCore"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
@@ -27,6 +33,7 @@ let package = Package(
             dependencies: ["RegattaBrain"],
             resources: [
                 .copy("fake-claude.sh"),
+                .copy("fake-judge.sh"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
