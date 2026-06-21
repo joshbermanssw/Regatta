@@ -199,6 +199,9 @@
          location = "group:RegattaGitHub">
       </FileRef>
       <FileRef
+         location = "group:RegattaLoopUI">
+      </FileRef>
+      <FileRef
          location = "group:RegattaMemory">
       </FileRef>
    </Group>
