@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 import RegattaFleet
 import RegattaGitHub
 
@@ -74,7 +75,11 @@ struct FleetSectionView: View {
     /// Snapshot-boundary: `snapshots` is captured here (before the `ForEach`) as
     /// an immutable value array. Rows receive `ShepherdState` value copies only.
     private var shepherdList: some View {
+        // Snapshot-boundary: capture immutable value snapshots BEFORE the
+        // `ForEach`. Rows receive value copies + closures only — no view-model or
+        // `Fleet`/`AutonomyGate` reference escapes into the list subtree.
         let snapshots: [ShepherdState] = viewModel.shepherds
+        let pending: [PendingAction] = viewModel.pendingActions
 
         return Group {
             if snapshots.isEmpty {
@@ -82,9 +87,16 @@ struct FleetSectionView: View {
             } else {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(snapshots) { shepherd in
+                        let prID = shepherd.pullRequest.id
                         ShepherdRow(
                             state: shepherd,
-                            onDismiss: { dismiss(shepherd.pullRequest) }
+                            pending: pending.filter { $0.pullRequest.id == prID },
+                            actions: ShepherdRowActions(
+                                onDismiss: { dismiss(shepherd.pullRequest) },
+                                onSetMode: { mode in setMode(mode, for: shepherd.pullRequest) },
+                                onApprove: { id in approve(id) },
+                                onReject: { id in reject(id) }
+                            )
                         )
                     }
                 }
@@ -117,6 +129,30 @@ struct FleetSectionView: View {
     private func dismiss(_ ref: PullRequestRef) {
         viewModel.dismiss(ref)
     }
+
+    private func setMode(_ mode: AutonomyMode, for ref: PullRequestRef) {
+        viewModel.setAutonomyMode(mode, for: ref)
+    }
+
+    private func approve(_ id: UUID) {
+        viewModel.approve(id)
+    }
+
+    private func reject(_ id: UUID) {
+        viewModel.reject(id)
+    }
+}
+
+// MARK: - ShepherdRowActions
+
+/// The closure bundle passed to a ``ShepherdRow``. Keeps the snapshot-boundary
+/// contract: rows hold value snapshots + this bundle of actions, never a store
+/// reference.
+private struct ShepherdRowActions {
+    let onDismiss: () -> Void
+    let onSetMode: (AutonomyMode) -> Void
+    let onApprove: (UUID) -> Void
+    let onReject: (UUID) -> Void
 }
 
 // MARK: - ShepherdRow
@@ -125,9 +161,26 @@ struct FleetSectionView: View {
 /// view-model / `Fleet` reference is held (snapshot-boundary rule).
 private struct ShepherdRow: View {
     let state: ShepherdState
-    let onDismiss: () -> Void
+    /// The pending actions for this shepherd's PR (staged mode). Value snapshots.
+    let pending: [PendingAction]
+    let actions: ShepherdRowActions
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            headerRow
+            autonomyControl
+            if !pending.isEmpty {
+                pendingApprovals
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+    }
+
+    // MARK: - Header
+
+    private var headerRow: some View {
         HStack(spacing: 6) {
             statusDot
             VStack(alignment: .leading, spacing: 1) {
@@ -141,7 +194,7 @@ private struct ShepherdRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 4)
-            Button(action: onDismiss) {
+            Button(action: actions.onDismiss) {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.tertiary)
@@ -151,9 +204,90 @@ private struct ShepherdRow: View {
                 String(localized: "fleet.shepherd.dismiss.a11y", defaultValue: "Dismiss shepherd")
             )
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
-        .contentShape(Rectangle())
+    }
+
+    // MARK: - Autonomy toggle
+
+    /// The per-PR autonomy mode picker: stage-for-approval vs auto-push & resolve.
+    /// Changeable at any time; the current mode is always visible.
+    private var autonomyControl: some View {
+        Picker(
+            selection: Binding(
+                get: { state.autonomyMode },
+                set: { actions.onSetMode($0) }
+            )
+        ) {
+            Text(String(localized: "fleet.autonomy.staged", defaultValue: "Stage for approval"))
+                .tag(AutonomyMode.staged)
+            Text(String(localized: "fleet.autonomy.auto", defaultValue: "Auto-push & resolve"))
+                .tag(AutonomyMode.auto)
+        } label: {
+            Text(String(localized: "fleet.autonomy.label", defaultValue: "Autonomy"))
+        }
+        .pickerStyle(.menu)
+        .controlSize(.mini)
+        .labelsHidden()
+        .font(.system(size: 10))
+        .accessibilityIdentifier("FleetAutonomyPicker")
+        .accessibilityLabel(
+            String(localized: "fleet.autonomy.a11y", defaultValue: "Autonomy mode for this pull request")
+        )
+        .help(String(
+            localized: "fleet.autonomy.tooltip",
+            defaultValue: "Stage holds push/reply/resolve for your approval; Auto runs them immediately"
+        ))
+    }
+
+    // MARK: - Pending approvals
+
+    /// The queue of actions awaiting approval in staged mode, each with an
+    /// approve/reject pair.
+    private var pendingApprovals: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(pending) { action in
+                HStack(spacing: 6) {
+                    Image(systemName: icon(for: action.kind))
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                    Text(action.summary)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Button {
+                        actions.onApprove(action.id)
+                    } label: {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.green)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        String(localized: "fleet.pending.approve.a11y", defaultValue: "Approve action")
+                    )
+                    Button {
+                        actions.onReject(action.id)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        String(localized: "fleet.pending.reject.a11y", defaultValue: "Reject action")
+                    )
+                }
+            }
+        }
+        .padding(.leading, 13)
+    }
+
+    private func icon(for kind: ActionKind) -> String {
+        switch kind {
+        case .push: return "arrow.up.circle"
+        case .reply: return "arrowshape.turn.up.left"
+        case .resolve: return "checkmark.bubble"
+        }
     }
 
     /// A coloured dot summarising the shepherd's current health.
