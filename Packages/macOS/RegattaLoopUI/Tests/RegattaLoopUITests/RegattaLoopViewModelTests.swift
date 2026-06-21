@@ -130,37 +130,65 @@ import RegattaCore
     }
 
     @Test func pauseSettlesIntoPausedThenResumeContinues() async {
+        // A gated worker paces iterations so pause is requested while the loop is
+        // provably mid-run — well before the safety cap — making this
+        // deterministic rather than timing-dependent.
+        let worker = GatedLoopWorker(tokens: 5)
         let vm = makeViewModel(
             configuration: RegattaLoopConfiguration(goal: "g", stopCondition: .manual),
-            worker: progressWorker(tokens: 5)
+            worker: worker
         )
         vm.start()
-        _ = await vm.waitUntil { $0.iterations.count >= 1 && $0.phase.isActive }
+        // Iteration 0 has entered the worker and is blocked: the loop is running
+        // and cannot advance until we release it.
+        await worker.waitForIterationStart(count: 1)
+        #expect(vm.phase.isActive)
         vm.pause()
+        // Ensure the manual-stop request has reached the engine before pacing the
+        // loop forward, so the next turn boundary observes it.
+        await vm.awaitPendingControl()
+        // Let the in-flight iteration finish; the engine observes the manual-stop
+        // request at the next turn boundary and settles into paused.
+        await worker.release()
         let paused = await vm.waitUntil { $0.phase == .paused }
         #expect(paused)
         let afterPauseCount = vm.iterations.count
-        #expect(afterPauseCount >= 1)
+        #expect(afterPauseCount == 1)
 
         // Resume builds a fresh engine; history is retained and grows.
         vm.resume()
+        // The resumed engine's first iteration (the worker's 2nd entry overall)
+        // is now blocked; release it so a new row is appended.
+        await worker.waitForIterationStart(count: 2)
+        await worker.release()
         _ = await vm.waitUntil { $0.iterations.count > afterPauseCount }
         #expect(vm.iterations.count > afterPauseCount)
         // Row ids stay unique and contiguous across the resume boundary.
         #expect(vm.iterations.map(\.index) == Array(0..<vm.iterations.count))
 
         vm.stop()
+        await vm.awaitPendingControl()
+        // Unblock the now in-flight iteration so the run can finish.
+        await worker.release()
         _ = await vm.waitUntil { if case .finished = $0.phase { return true }; return false }
     }
 
     @Test func stopFinishesWithManualStop() async {
+        // A gated worker pins the loop inside iteration 0 so the manual stop is
+        // requested while it is provably mid-run, never racing the safety cap.
+        let worker = GatedLoopWorker()
         let vm = makeViewModel(
             configuration: RegattaLoopConfiguration(goal: "g", stopCondition: .manual),
-            worker: progressWorker()
+            worker: worker
         )
         vm.start()
-        _ = await vm.waitUntil { $0.iterations.count >= 1 && $0.phase.isActive }
+        await worker.waitForIterationStart(count: 1)
+        #expect(vm.phase.isActive)
         vm.stop()
+        await vm.awaitPendingControl()
+        // Let the in-flight iteration complete; the engine then sees the stop
+        // request at the top of the next turn and finishes with manualStop.
+        await worker.release()
         let done = await vm.waitUntil { if case .finished = $0.phase { return true }; return false }
         #expect(done)
         #expect(vm.stopReason == .manualStop)

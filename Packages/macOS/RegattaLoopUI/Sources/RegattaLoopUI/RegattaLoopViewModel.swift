@@ -89,6 +89,14 @@ public final class RegattaLoopViewModel {
     @ObservationIgnored
     private var pauseRequested = false
 
+    /// The task that delivers the most recent ``pause()``/``stop()`` request to
+    /// the engine actor. Both controls dispatch `requestManualStop()` onto the
+    /// engine asynchronously; this captures that dispatch so a deterministic test
+    /// can await its delivery before pacing the loop forward (avoiding a race
+    /// between the stop request landing and the next iteration boundary).
+    @ObservationIgnored
+    private var pendingControlTask: Task<Void, Never>?
+
     // MARK: - Init
 
     /// Creates a loop view model.
@@ -148,7 +156,7 @@ public final class RegattaLoopViewModel {
     public func pause() {
         guard case .running = phase, let engine else { return }
         pauseRequested = true
-        Task { await engine.requestManualStop() }
+        pendingControlTask = Task { await engine.requestManualStop() }
     }
 
     /// Resumes a paused loop by launching a fresh engine over the retained
@@ -164,7 +172,7 @@ public final class RegattaLoopViewModel {
     public func stop() {
         guard case .running = phase, let engine else { return }
         pauseRequested = false
-        Task { await engine.requestManualStop() }
+        pendingControlTask = Task { await engine.requestManualStop() }
     }
 
     /// Enters edit mode so the goal / condition / caps can be changed.
@@ -201,6 +209,14 @@ public final class RegattaLoopViewModel {
     public func jumpIntoTerminal() {
         guard terminalJumper.canJumpIntoTerminal else { return }
         terminalJumper.jumpIntoTerminal(workerID: workerID)
+    }
+
+    /// Awaits delivery of the most recent ``pause()``/``stop()`` request to the
+    /// engine. Deterministic-test seam: lets a test guarantee the manual-stop flag
+    /// is set on the engine before it paces the next iteration, so the loop's
+    /// terminal reason is the requested stop rather than a timing-dependent cap.
+    func awaitPendingControl() async {
+        await pendingControlTask?.value
     }
 
     /// Cancels in-flight tasks and detaches the engine. Idempotent.
