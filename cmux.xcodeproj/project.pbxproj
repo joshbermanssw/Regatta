@@ -618,6 +618,9 @@
 		6E88CF3593A8306CBF7E714A /* RegattaRailModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96F7B20A6E94CC93127FDF45 /* RegattaRailModeTests.swift */; };
 		7259911ECA21459664E535AA /* RegattaRailSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DAD83CD129913FC97545C1E /* RegattaRailSection.swift */; };
 		D4D05D372C00F1BF330A223F /* RegattaRailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11949C61F1374C0C800032DD /* RegattaRailView.swift */; };
+		BA2904030000000000000002 /* RegattaSummonManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2904030000000000000001 /* RegattaSummonManager.swift */; };
+		BA2904020000000000000002 /* RegattaSummonOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2904020000000000000001 /* RegattaSummonOverlayView.swift */; };
+		BA2904010000000000000002 /* RegattaSummonViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2904010000000000000001 /* RegattaSummonViewModel.swift */; };
 		A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0000000000000000001 /* ReleasingWindowController.swift */; };
 		A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */; };
 		EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */; };
@@ -1612,6 +1615,9 @@
 		96F7B20A6E94CC93127FDF45 /* RegattaRailModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Regatta/RegattaRailModeTests.swift; sourceTree = "<group>"; };
 		7DAD83CD129913FC97545C1E /* RegattaRailSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaRailSection.swift; sourceTree = "<group>"; };
 		11949C61F1374C0C800032DD /* RegattaRailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaRailView.swift; sourceTree = "<group>"; };
+		BA2904030000000000000001 /* RegattaSummonManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaSummonManager.swift; sourceTree = "<group>"; };
+		BA2904020000000000000001 /* RegattaSummonOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaSummonOverlayView.swift; sourceTree = "<group>"; };
+		BA2904010000000000000001 /* RegattaSummonViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaSummonViewModel.swift; sourceTree = "<group>"; };
 		A6D1F0000000000000000001 /* ReleasingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ReleasingWindowController.swift; sourceTree = "<group>"; };
 		A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleasingWindowControllerTests.swift; sourceTree = "<group>"; };
 		EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteDaemonStrings+App.swift"; sourceTree = "<group>"; };
@@ -2772,6 +2778,9 @@
 				BA2903020000000000000001 /* RegattaFleetViewModel.swift */,
 				BA2904010000000000000001 /* RegattaConcurrencySettings.swift */,
 				BA2903030000000000000001 /* FleetSectionView.swift */,
+				BA2904010000000000000001 /* RegattaSummonViewModel.swift */,
+				BA2904020000000000000001 /* RegattaSummonOverlayView.swift */,
+				BA2904030000000000000001 /* RegattaSummonManager.swift */,
 				11949C61F1374C0C800032DD /* RegattaRailView.swift */,
 				7DAD83CD129913FC97545C1E /* RegattaRailSection.swift */,
 				BA2900080000000000000001 /* RegattaBrainViewModel.swift */,
@@ -3867,6 +3876,9 @@
 				91DBE32A038E29038975A885 /* RegattaPlaceholderWindow.swift in Sources */,
 				7259911ECA21459664E535AA /* RegattaRailSection.swift in Sources */,
 				D4D05D372C00F1BF330A223F /* RegattaRailView.swift in Sources */,
+				BA2904030000000000000002 /* RegattaSummonManager.swift in Sources */,
+				BA2904020000000000000002 /* RegattaSummonOverlayView.swift in Sources */,
+				BA2904010000000000000002 /* RegattaSummonViewModel.swift in Sources */,
 				A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */,
 				EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */,
 				E30780000000000000000016 /* RemoteDropUploadError+LocalizedError.swift in Sources */,
