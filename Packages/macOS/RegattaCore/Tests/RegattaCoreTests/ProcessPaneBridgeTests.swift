@@ -68,7 +68,7 @@ import Testing
             try spec(for: FakeAgentScript(steps: [.out("hello"), .out("world")], exitCode: 0), cwd: cwd)
         )
 
-        let events = await collect(handle)
+        let events = try await TestTimeout.run("spawnEmitsStdoutAndExit collect") { await collect(handle) }
 
         let stdout = events.compactMap { if case .stdout(let s) = $0 { return s } else { return nil } }.joined()
         #expect(stdout.contains("hello"), "stdout should contain hello; got \(stdout)")
@@ -88,7 +88,7 @@ import Testing
             try spec(for: FakeAgentScript(steps: [.err("boom")], exitCode: 7), cwd: cwd)
         )
 
-        let events = await collect(handle)
+        let events = try await TestTimeout.run("spawnEmitsStderrAndNonZeroExit collect") { await collect(handle) }
 
         let stderr = events.compactMap { if case .stderr(let s) = $0 { return s } else { return nil } }.joined()
         #expect(stderr.contains("boom"), "stderr should contain boom; got \(stderr)")
@@ -119,7 +119,7 @@ import Testing
             )
         )
 
-        let events = await collect(handle)
+        let events = try await TestTimeout.run("spawnRunsInWorkingDirectory collect") { await collect(handle) }
         let stdout = events.compactMap { if case .stdout(let s) = $0 { return s } else { return nil } }.joined()
         #expect(
             stdout.contains(resolved),
@@ -150,11 +150,12 @@ import Testing
             return events
         }
 
-        // Wait for the real start signal before terminating (no sleep-poll).
-        await started.wait()
+        // Wait for the real start signal before terminating (no sleep-poll). Bound every await so a
+        // regression of the stream-never-finishes hang fails fast instead of wedging the suite.
+        try await TestTimeout.run("terminateStopsRunningAgent start signal") { await started.wait() }
 
-        try await bridge.terminate(handle.id)
-        let events = await collector.value
+        try await TestTimeout.run("terminateStopsRunningAgent terminate") { try await bridge.terminate(handle.id) }
+        let events = try await TestTimeout.run("terminateStopsRunningAgent collector") { await collector.value }
 
         let terminations = events.compactMap { if case .terminated = $0 { return true } else { return nil } }
         #expect(!terminations.isEmpty, "a terminated event must be emitted after terminate()")

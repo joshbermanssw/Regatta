@@ -41,18 +41,6 @@ public actor ProcessPaneBridge: PaneBridge {
     public func spawn(_ spec: PaneSpec) async throws -> PaneHandle {
         let id = PaneHandle.ID()
 
-        let process = Process()
-        process.executableURL = spec.executableURL
-        process.arguments = spec.arguments
-        process.currentDirectoryURL = spec.workingDirectory
-        process.environment = spec.environment.isEmpty ? Self.defaultEnvironment() : spec.environment
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
         // The emitter owns the AsyncStream continuation and guarantees one terminal event.
         let emitter = PaneOutputEmitter()
         let stream = AsyncStream<PaneOutputEvent> { continuation in
@@ -65,36 +53,30 @@ public actor ProcessPaneBridge: PaneBridge {
             emitter.finish(code: code)
         }
 
-        // Drain both pipes incrementally. Each drainer owns its read fd and closes it on cancel,
-        // then reports EOF to the coordinator. DispatchSource is the sanctioned low-level
-        // primitive for streaming pipe I/O (cmux-architecture carve-out), hidden behind the
-        // AsyncStream.
-        let stdoutDrain = PaneStreamDrainer(
-            fileDescriptor: stdoutPipe.fileHandleForReading.fileDescriptor,
-            onChunk: { emitter.yield(.stdout($0)) },
-            onEOF: { coordinator.stdoutFinished() }
-        )
-        let stderrDrain = PaneStreamDrainer(
-            fileDescriptor: stderrPipe.fileHandleForReading.fileDescriptor,
-            onChunk: { emitter.yield(.stderr($0)) },
-            onEOF: { coordinator.stderrFinished() }
-        )
-
-        process.terminationHandler = { proc in
-            coordinator.processExited(proc.terminationStatus)
-        }
-
+        // Launch, retrying a transient `EBADF` ("Bad file descriptor"). Foundation's `Process.run()`
+        // walks the process fd table while building the child; under heavy concurrent spawning a
+        // sibling launch's fd close can race that walk and surface a one-off `EBADF` even though the
+        // spec is valid. Each attempt builds a fresh `Process` + pipes inside the spawn gate, so a
+        // retry starts from a clean fd state. Non-transient failures (bad executable path, etc.)
+        // throw immediately.
+        let launched: (process: Process, drainers: (stdout: PaneStreamDrainer, stderr: PaneStreamDrainer))
         do {
-            try process.run()
+            launched = try await Self.launchWithRetry(
+                spec: spec,
+                emitter: emitter,
+                coordinator: coordinator
+            )
         } catch {
-            // Spawn failed: nothing will close the pipes, so cancel the drainers (closes fds) and
-            // synthesize a terminal event for any consumer already iterating the stream.
-            stdoutDrain.cancel()
-            stderrDrain.cancel()
+            // Spawn failed: complete the stream so any consumer already iterating it unblocks. Any
+            // drainers created on the failed attempt tear down via their own deinit.
             emitter.finish(code: -1)
             throw PaneBridgeError.spawnFailed(String(describing: error))
         }
+        let process = launched.process
+        let drainers = launched.drainers
 
+        let stdoutDrain = drainers.stdout
+        let stderrDrain = drainers.stderr
         stdoutDrain.resume()
         stderrDrain.resume()
 
@@ -144,6 +126,133 @@ public actor ProcessPaneBridge: PaneBridge {
     /// Removes the tracking entry for a finished pane.
     private func untrack(_ id: PaneHandle.ID) {
         running.removeValue(forKey: id)
+    }
+
+    /// Launches the agent, retrying a transient `EBADF` from a concurrent fd-table race.
+    ///
+    /// - Parameters:
+    ///   - spec: The pane spec to launch.
+    ///   - emitter: The output emitter the drainers feed.
+    ///   - coordinator: The termination coordinator the drainers + exit signal feed.
+    /// - Returns: The running process plus its two pipe drainers (not yet resumed).
+    /// - Throws: The last launch error if every attempt fails, or any non-transient error at once.
+    private static func launchWithRetry(
+        spec: PaneSpec,
+        emitter: PaneOutputEmitter,
+        coordinator: PaneTerminationCoordinator
+    ) async throws -> (process: Process, drainers: (stdout: PaneStreamDrainer, stderr: PaneStreamDrainer)) {
+        let maxAttempts = 5
+        var lastError: (any Error)?
+        for attempt in 1...maxAttempts {
+            do {
+                return try await launchOnce(spec: spec, emitter: emitter, coordinator: coordinator)
+            } catch {
+                lastError = error
+                // Only a transient bad-fd race is worth retrying; anything else is a real failure.
+                guard Self.isTransientSpawnError(error), attempt < maxAttempts else { throw error }
+            }
+        }
+        throw lastError ?? PaneBridgeError.spawnFailed("unknown spawn failure")
+    }
+
+    /// Performs one launch attempt: create pipes, mark them close-on-exec, wire the drainers and
+    /// termination handler, run the process, and close the parent's pipe write ends — all inside the
+    /// process-wide spawn gate.
+    ///
+    /// The gate serializes the fd-table-mutating section so no concurrent launch is mid-`posix_spawn`
+    /// while these pipe fds are open-but-not-yet-CLOEXEC — the inheritance window behind the
+    /// headless-CI hang (issue #14). Closing the parent's write ends right after `run()` is what
+    /// actually guarantees the read end reaches EOF when the child exits: Foundation's `Pipe` keeps
+    /// the parent-side write handle open, so leaving it open makes the *parent* a permanent writer
+    /// and the drainer's `read()` never returns 0. Drainers are returned un-resumed so the caller can
+    /// resume them outside the gate (a long-lived child must not block other launches).
+    ///
+    /// - Returns: The running process and its two un-resumed drainers.
+    /// - Throws: Any error from `Process.run()`.
+    private static func launchOnce(
+        spec: PaneSpec,
+        emitter: PaneOutputEmitter,
+        coordinator: PaneTerminationCoordinator
+    ) async throws -> (process: Process, drainers: (stdout: PaneStreamDrainer, stderr: PaneStreamDrainer)) {
+        try await SubprocessSpawnGate.shared.run {
+            let process = Process()
+            process.executableURL = spec.executableURL
+            process.arguments = spec.arguments
+            process.currentDirectoryURL = spec.workingDirectory
+            process.environment = spec.environment.isEmpty ? Self.defaultEnvironment() : spec.environment
+
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            Self.setCloseOnExec(stdoutPipe)
+            Self.setCloseOnExec(stderrPipe)
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+
+            // Drain both pipes incrementally. Each drainer owns its read fd and closes it on cancel,
+            // then reports EOF to the coordinator. DispatchSource is the sanctioned low-level
+            // primitive for streaming pipe I/O (cmux-architecture carve-out), hidden behind the
+            // AsyncStream.
+            let stdoutDrain = PaneStreamDrainer(
+                readHandle: stdoutPipe.fileHandleForReading,
+                onChunk: { emitter.yield(.stdout($0)) },
+                onEOF: { coordinator.stdoutFinished() }
+            )
+            let stderrDrain = PaneStreamDrainer(
+                readHandle: stderrPipe.fileHandleForReading,
+                onChunk: { emitter.yield(.stderr($0)) },
+                onEOF: { coordinator.stderrFinished() }
+            )
+
+            process.terminationHandler = { proc in
+                // Record the exit code, then complete each drainer via `finishAfterExit()`. The child
+                // is gone and the parent's write ends are closed (below), so all output is already in
+                // the pipe buffer; `finishAfterExit()` reads it (ordered after pending reads, so no
+                // byte is lost) and then fires EOF. This completes the stream even in the rare case a
+                // stray inherited write-end would keep the pipe open and defer natural EOF forever —
+                // the headless-CI hang (issue #14) — while still delivering every byte.
+                coordinator.processExited(proc.terminationStatus)
+                stdoutDrain.finishAfterExit()
+                stderrDrain.finishAfterExit()
+            }
+
+            try process.run()
+
+            // Close the parent's copy of each pipe's WRITE end now that the child has its own dup.
+            // Foundation's `Pipe` keeps the parent-side write handle open; leaving it open makes the
+            // parent a permanent writer so the read end never reaches EOF and `read()` blocks
+            // forever — the primary headless-CI hang (issue #14). The read ends stay open; the
+            // drainers own and close them on teardown.
+            try? stdoutPipe.fileHandleForWriting.close()
+            try? stderrPipe.fileHandleForWriting.close()
+            return (process, (stdoutDrain, stderrDrain))
+        }
+    }
+
+    /// Reports whether a `Process.run()` error is a transient fd-table race worth one retry.
+    ///
+    /// - Parameter error: The error thrown by `Process.run()`.
+    /// - Returns: `true` for a POSIX `EBADF` ("Bad file descriptor"); `false` otherwise.
+    private static func isTransientSpawnError(_ error: any Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == NSPOSIXErrorDomain && nsError.code == Int(EBADF)
+    }
+
+    /// Sets `FD_CLOEXEC` on both ends of a pipe so neither end leaks into an unrelated child.
+    ///
+    /// A concurrently-spawning sibling process must not inherit our pipe fds; an inherited *write*
+    /// end keeps the pipe open past our child's exit and stalls EOF on the read end. Foundation
+    /// passes the write end to *our* child via `dup2`, which produces a fresh fd without
+    /// `FD_CLOEXEC`, so the intended child is unaffected.
+    ///
+    /// - Parameter pipe: The pipe whose read and write fds should be marked close-on-exec.
+    private static func setCloseOnExec(_ pipe: Pipe) {
+        for fd in [pipe.fileHandleForReading.fileDescriptor, pipe.fileHandleForWriting.fileDescriptor] {
+            let flags = fcntl(fd, F_GETFD)
+            if flags >= 0 {
+                _ = fcntl(fd, F_SETFD, flags | FD_CLOEXEC)
+            }
+        }
     }
 
     /// A minimal default environment used when ``PaneSpec/environment`` is empty.

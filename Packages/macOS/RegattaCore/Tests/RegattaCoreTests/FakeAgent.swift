@@ -1,4 +1,5 @@
 import Foundation
+@testable import RegattaCore
 
 // MARK: - FakeAgentScript
 
@@ -100,12 +101,12 @@ struct FakeAgent {
     /// - Parameter script: The script to execute.
     /// - Returns: A `FakeAgentRun` with stdout, stderr, and exit code.
     /// - Throws: `FakeAgentError` if the script is missing; any error from `Process.run()`.
-    func run(_ script: FakeAgentScript) throws -> FakeAgentRun {
+    func run(_ script: FakeAgentScript) async throws -> FakeAgentRun {
         let scriptPath = try Self.scriptURL.path
         let fixturePath = try writeFixture(script)
         defer { try? FileManager.default.removeItem(atPath: fixturePath) }
 
-        return try spawnAndCapture(scriptPath: scriptPath, fixturePath: fixturePath)
+        return try await spawnAndCapture(scriptPath: scriptPath, fixturePath: fixturePath)
     }
 
     /// Spawns the fake agent once per element in `scripts`, stopping early when a run exits `0`,
@@ -119,12 +120,12 @@ struct FakeAgent {
     ///     is shorter than `maxIterations` the last script is repeated.
     ///   - maxIterations: Hard cap on the number of spawns.
     /// - Returns: The per-iteration `FakeAgentRun` results (length ≤ `maxIterations`).
-    func loop(scripts: [FakeAgentScript], maxIterations: Int) throws -> [FakeAgentRun] {
+    func loop(scripts: [FakeAgentScript], maxIterations: Int) async throws -> [FakeAgentRun] {
         guard !scripts.isEmpty else { return [] }
         var results: [FakeAgentRun] = []
         for i in 0..<maxIterations {
             let script = i < scripts.count ? scripts[i] : scripts[scripts.count - 1]
-            let result = try run(script)
+            let result = try await run(script)
             results.append(result)
             if result.exitCode == 0 {
                 break
@@ -153,7 +154,7 @@ struct FakeAgent {
     /// the process runs, then we join with `group.wait()` after `waitUntilExit()`.  This prevents
     /// the classic pipe-buffer deadlock where a process blocks on a full pipe while the parent
     /// blocks in `waitUntilExit()` — the harness is safe for arbitrary output size.
-    private func spawnAndCapture(scriptPath: String, fixturePath: String) throws -> FakeAgentRun {
+    private func spawnAndCapture(scriptPath: String, fixturePath: String) async throws -> FakeAgentRun {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = [scriptPath, fixturePath]
@@ -186,7 +187,11 @@ struct FakeAgent {
         process.standardOutput = outHandle
         process.standardError = errHandle
 
-        try process.run()
+        // Launch inside the process-wide spawn gate so this `posix_spawn` cannot fire while another
+        // launch's pipe fds are open-but-not-yet-CLOEXEC (the fd-inheritance hang behind issue #14).
+        try await SubprocessSpawnGate.shared.run {
+            try process.run()
+        }
         process.waitUntilExit()
         try? outHandle.close()
         try? errHandle.close()
