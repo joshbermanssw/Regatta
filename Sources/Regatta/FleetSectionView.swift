@@ -21,11 +21,14 @@ struct FleetSectionView: View {
         // Capture the snapshot at this level — no @Observable read inside ForEach.
         let snapshots: [Worker] = viewModel.workers
 
-        return Group {
-            if snapshots.isEmpty {
-                emptyView
-            } else {
-                workerList(snapshots)
+        return VStack(spacing: 0) {
+            FleetConcurrencyCapRow()
+            Group {
+                if snapshots.isEmpty {
+                    emptyView
+                } else {
+                    workerList(snapshots)
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -65,6 +68,58 @@ struct FleetSectionView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - FleetConcurrencyCapRow
+
+/// A stepper row controlling the Fleet concurrency cap — the maximum number of
+/// workers allowed to run at once before the rest are held ``WorkerStatus/queued``
+/// (issue #18).
+///
+/// Bound to `regatta.maxConcurrentWorkers` in `UserDefaults` via `@AppStorage`, the
+/// same key the settings file store writes from `~/.config/cmux/cmux.json`. Editing
+/// it here updates that value; ``RegattaFleetManager`` observes the change and
+/// pushes the new cap into the orchestrator live (promoting queued workers when
+/// raised, holding new spawns when lowered). This row sits **above** the worker
+/// `LazyVStack`, so it holds no store reference inside the list snapshot boundary.
+private struct FleetConcurrencyCapRow: View {
+    @AppStorage(RegattaConcurrencySettings.maxConcurrentWorkersKey)
+    private var cap: Int = RegattaConcurrencySettings.defaultMaxConcurrentWorkers
+
+    private var clampedCap: Int { RegattaConcurrencySettings.clamp(cap) }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(String(localized: "regatta.fleet.cap.label", defaultValue: "Max concurrent"))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 4)
+            Stepper(
+                value: $cap,
+                in: RegattaConcurrencySettings.minimumMaxConcurrentWorkers
+                    ... RegattaConcurrencySettings.maximumMaxConcurrentWorkers
+            ) {
+                Text("\(clampedCap)")
+                    .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.primary)
+            }
+            .labelsHidden()
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            String.localizedStringWithFormat(
+                String(
+                    localized: "regatta.fleet.cap.a11y",
+                    defaultValue: "Maximum concurrent workers, %lld"
+                ),
+                clampedCap
+            )
+        )
     }
 }
 

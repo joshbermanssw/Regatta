@@ -16,6 +16,17 @@ public import Foundation
 /// into value-typed ``Worker`` rows, so no actor reference crosses the SwiftUI
 /// list snapshot boundary (CLAUDE.md).
 ///
+/// ## Concurrency cap + queue (#18)
+/// The orchestrator caps how many workers run at once. ``spawnWorker(_:)`` always
+/// registers a worker as ``WorkerStatus/queued`` and returns immediately; a worker
+/// only begins provisioning + launching when a slot is free. When a worker reaches
+/// a terminal status or is cancelled, the oldest still-queued worker is promoted
+/// automatically. The cap is adjustable at runtime via
+/// ``setMaxConcurrentWorkers(_:)``; raising it promotes held workers right away,
+/// while lowering it never terminates already-running workers — it just holds new
+/// spawns until the running count falls back under the cap. All scheduling runs on
+/// the actor, so promotion decisions are race-free.
+///
 /// ## Concurrency
 /// An `actor` owns all mutable worker state. The ``PaneBridge`` and
 /// ``RegattaWorktreeManager`` dependencies are injected, so tests drive the full
@@ -23,11 +34,17 @@ public import Foundation
 /// worktree manager.
 public actor RegattaOrchestrator {
 
+    /// The fallback concurrency cap when none is supplied.
+    public static let defaultMaxConcurrentWorkers = 4
+
     // MARK: - Worker record (internal mutable state)
 
     /// Internal bookkeeping for one tracked worker.
     private struct WorkerRecord {
         var worker: Worker
+        /// The original spawn request, retained so a queued worker can be promoted
+        /// and launched later when a run slot frees.
+        let spec: WorkerSpec
         /// The pane handle ID once the agent process is spawned; `nil` while queued.
         var paneID: PaneHandle.ID?
         /// The task observing the worker's output stream, cancelled on shutdown.
@@ -41,6 +58,17 @@ public actor RegattaOrchestrator {
     private var order: [UUID] = []
     private var continuations: [UUID: AsyncStream<[Worker]>.Continuation] = [:]
 
+    /// The maximum number of workers allowed to occupy a run slot at once.
+    /// Always `>= 1`; values below `1` are clamped on assignment.
+    private var maxConcurrentWorkers: Int
+
+    /// Workers that hold a run slot: promoted out of the queue and either
+    /// provisioning, launching, or running. A worker leaves this set the moment it
+    /// reaches a terminal status (or is cancelled), freeing its slot. Used as the
+    /// authoritative "active" count for cap enforcement, independent of the brief
+    /// window between promotion and the `.running` transition.
+    private var slotHolders: Set<UUID> = []
+
     // MARK: - Dependencies
 
     private let worktreeManager: RegattaWorktreeManager
@@ -53,12 +81,37 @@ public actor RegattaOrchestrator {
     /// - Parameters:
     ///   - worktreeManager: Provisions isolated worktrees for each worker.
     ///   - paneBridge: Launches and observes the agent process for each worker.
+    ///   - maxConcurrentWorkers: The cap on simultaneously running workers; excess
+    ///     spawns are held ``WorkerStatus/queued`` until a slot frees. Clamped to a
+    ///     minimum of `1`. Defaults to ``defaultMaxConcurrentWorkers``.
     public init(
         worktreeManager: RegattaWorktreeManager,
-        paneBridge: any PaneBridge
+        paneBridge: any PaneBridge,
+        maxConcurrentWorkers: Int = RegattaOrchestrator.defaultMaxConcurrentWorkers
     ) {
         self.worktreeManager = worktreeManager
         self.paneBridge = paneBridge
+        self.maxConcurrentWorkers = max(1, maxConcurrentWorkers)
+    }
+
+    // MARK: - Concurrency cap
+
+    /// Adjusts the cap on simultaneously running workers and re-evaluates the queue.
+    ///
+    /// Raising the cap promotes the oldest queued workers immediately until the cap
+    /// or the queue is exhausted. Lowering the cap never terminates already-running
+    /// workers; it simply holds new spawns (and any still-queued workers) until the
+    /// active count falls back under the new cap.
+    ///
+    /// - Parameter newValue: The new cap. Clamped to a minimum of `1`.
+    public func setMaxConcurrentWorkers(_ newValue: Int) {
+        maxConcurrentWorkers = max(1, newValue)
+        scheduleQueued()
+    }
+
+    /// The current cap on simultaneously running workers.
+    public func currentMaxConcurrentWorkers() -> Int {
+        maxConcurrentWorkers
     }
 
     // MARK: - Observation
@@ -89,9 +142,11 @@ public actor RegattaOrchestrator {
     /// Registers a worker for `spec` and begins provisioning + launching it.
     ///
     /// Returns immediately with the worker's ID while the worker is
-    /// ``WorkerStatus/queued``; the worktree provisioning and agent launch happen
-    /// on a detached task that drives the worker to ``WorkerStatus/running`` and
-    /// then to a terminal status.
+    /// ``WorkerStatus/queued``. If a run slot is free (active count below the cap),
+    /// the worker is promoted at once: worktree provisioning and agent launch happen
+    /// on a detached task that drives the worker to ``WorkerStatus/running`` and then
+    /// to a terminal status. Otherwise the worker stays ``WorkerStatus/queued`` until
+    /// a slot frees and the scheduler promotes it.
     ///
     /// - Parameter spec: The brain's request describing the worker.
     /// - Returns: The new worker's stable ID, usable with ``cancelWorker(_:)``.
@@ -99,16 +154,45 @@ public actor RegattaOrchestrator {
     public func spawnWorker(_ spec: WorkerSpec) -> UUID {
         let id = UUID()
         let worker = Worker(id: id, name: spec.name, prompt: spec.prompt, status: .queued)
-        records[id] = WorkerRecord(worker: worker, paneID: nil, observeTask: nil)
+        records[id] = WorkerRecord(worker: worker, spec: spec, paneID: nil, observeTask: nil)
         order.append(id)
         broadcast()
+        scheduleQueued()
+        return id
+    }
 
+    // MARK: - Scheduler
+
+    /// Promotes the oldest queued workers into free run slots until the cap is hit
+    /// or no queued workers remain. Actor-serialized, so promotion decisions never
+    /// race. Idempotent and safe to call after any state change (spawn, completion,
+    /// cancellation, or cap adjustment).
+    private func scheduleQueued() {
+        for id in order {
+            guard slotHolders.count < maxConcurrentWorkers else { return }
+            guard let record = records[id] else { continue }
+            // Only promote workers that are still queued and not already holding a
+            // slot (i.e. not yet provisioning/running).
+            guard record.worker.status == .queued, !slotHolders.contains(id) else { continue }
+            promote(id: id, spec: record.spec)
+        }
+    }
+
+    /// Claims a slot for `id` and starts its provisioning + launch task.
+    private func promote(id: UUID, spec: WorkerSpec) {
+        slotHolders.insert(id)
         let task = Task { [weak self] in
             guard let self else { return }
             await self.runWorker(id: id, spec: spec)
         }
         records[id]?.observeTask = task
-        return id
+    }
+
+    /// Releases the run slot held by `id` (if any) and promotes the next queued
+    /// worker. Called whenever a worker reaches a terminal status or is cancelled.
+    private func releaseSlotAndSchedule(_ id: UUID) {
+        slotHolders.remove(id)
+        scheduleQueued()
     }
 
     // MARK: - Cancel
@@ -222,6 +306,13 @@ public actor RegattaOrchestrator {
         record.worker = record.worker.withStatus(status)
         records[id] = record
         broadcast()
+
+        // A worker reaching a terminal status frees its run slot; promote the next
+        // queued worker. This is the single promotion-on-completion/failure path,
+        // shared by the lifecycle driver and cancellation.
+        if status.isTerminal {
+            releaseSlotAndSchedule(id)
+        }
     }
 
     private func broadcast() {

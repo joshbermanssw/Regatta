@@ -25,14 +25,46 @@ final class RegattaFleetManager {
     /// The app-lifetime orchestrator that provisions worktrees and launches workers.
     let orchestrator: RegattaOrchestrator
 
+    private let defaults: UserDefaults
+    private var defaultsObserver: NSObjectProtocol?
+
     private init() {
+        self.defaults = .standard
+        let cap = RegattaConcurrencySettings(defaults: defaults).maxConcurrentWorkers
         // TODO(#14): replace `UnavailablePaneBridge()` with `ProcessPaneBridge()`
         // once the Pane Bridge lands.
         orchestrator = RegattaOrchestrator(
             worktreeManager: RegattaWorktreeManager(
                 baseDirectory: RegattaWorktreeManager.defaultBaseDirectory()
             ),
-            paneBridge: UnavailablePaneBridge()
+            paneBridge: UnavailablePaneBridge(),
+            maxConcurrentWorkers: cap
         )
+        observeConcurrencyCap()
+    }
+
+    deinit {
+        if let defaultsObserver {
+            NotificationCenter.default.removeObserver(defaultsObserver)
+        }
+    }
+
+    /// Mirrors live `regatta.maxConcurrentWorkers` config changes into the
+    /// orchestrator so editing the cap in Settings (or `cmux.json`) takes effect
+    /// without restarting — promoting queued workers when raised, holding new
+    /// spawns when lowered. The settings file store applies the JSON value into
+    /// `UserDefaults.standard`, which posts `didChangeNotification`.
+    private func observeConcurrencyCap() {
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            let cap = RegattaConcurrencySettings(defaults: self.defaults).maxConcurrentWorkers
+            Task { [orchestrator] in
+                await orchestrator.setMaxConcurrentWorkers(cap)
+            }
+        }
     }
 }
