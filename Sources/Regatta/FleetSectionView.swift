@@ -340,6 +340,7 @@ private struct WorkerRow: View {
         case .failed:    return .red
         case .blocked:   return .yellow
         case .cancelled: return .orange
+        case .interrupted: return .yellow
         }
     }
 
@@ -363,6 +364,8 @@ private struct WorkerRow: View {
             )
         case .cancelled:
             return String(localized: "regatta.fleet.status.cancelled", defaultValue: "Cancelled")
+        case .interrupted:
+            return String(localized: "regatta.fleet.status.interrupted", defaultValue: "Interrupted")
         }
     }
 

@@ -2,7 +2,7 @@
 ///
 /// Maps to entries in the `statusCheckRollup` array returned by
 /// `gh pr view --json statusCheckRollup`.
-public struct PRCheck: Sendable, Equatable, Hashable {
+public struct PRCheck: Sendable, Equatable, Hashable, Codable {
     /// The display name of the check (e.g. `"build"`, `"test (macos-14)"`).
     public let name: String
     /// The current status of the check runner
@@ -25,7 +25,7 @@ public struct PRCheck: Sendable, Equatable, Hashable {
 }
 
 /// A rolled-up view of all CI checks for a pull request.
-public struct PRCheckSummary: Sendable, Equatable {
+public struct PRCheckSummary: Sendable, Equatable, Codable {
     /// Every individual check associated with the pull request.
     public let checks: [PRCheck]
 

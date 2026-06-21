@@ -1,6 +1,7 @@
 import Foundation
 import RegattaCore
 import RegattaFleet
+import RegattaPersistence
 
 /// A thin `@MainActor` seam holding the app-lifetime Fleet object graph so that
 /// the brain, the Fleet rail, the handoff action, and `AppDelegate` teardown all
@@ -47,6 +48,25 @@ final class RegattaFleetManager {
         )
         fleet = Fleet()
         observeConcurrencyCap()
+    }
+
+    /// Resumes persisted PR shepherds into the live Fleet on launch (issue #34).
+    ///
+    /// For each persisted shepherd snapshot, this re-hands-off the PR to the
+    /// shared ``Fleet`` — which is idempotent on PR identity and auto-starts the
+    /// watcher, so polling resumes automatically — and restores the PR's saved
+    /// ``AutonomyMode``. PR shepherds are event-driven, so this fully restores
+    /// them without resuming any process.
+    ///
+    /// - Parameter snapshot: The restored state snapshot from
+    ///   ``RegattaPersistenceManager/loadRestoredSnapshot()``.
+    func resumeShepherds(from snapshot: RegattaStateSnapshot) async {
+        for shepherd in snapshot.shepherds {
+            let pr = shepherd.pullRequest
+            await fleet.handoff(pr)
+            let mode = snapshot.autonomyModes[pr.id] ?? shepherd.autonomyMode
+            await fleet.setAutonomyMode(mode, for: pr)
+        }
     }
 
     deinit {

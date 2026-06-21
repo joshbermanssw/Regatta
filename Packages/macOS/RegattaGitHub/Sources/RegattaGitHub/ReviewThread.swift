@@ -2,7 +2,7 @@
 ///
 /// Corresponds to a node in the `comments` list of a GitHub review thread,
 /// as returned by the GraphQL API via `gh api graphql`.
-public struct ReviewComment: Sendable, Equatable, Hashable {
+public struct ReviewComment: Sendable, Equatable, Hashable, Codable {
     /// The GitHub node ID of the comment.
     public let id: String
     /// The comment body (markdown text).
@@ -38,7 +38,7 @@ public struct ReviewComment: Sendable, Equatable, Hashable {
 ///   }
 /// }}
 /// ```
-public struct ReviewThread: Sendable, Equatable, Hashable {
+public struct ReviewThread: Sendable, Equatable, Hashable, Codable {
     /// The GitHub node ID of the thread.
     public let id: String
     /// Whether the thread has been marked as resolved.

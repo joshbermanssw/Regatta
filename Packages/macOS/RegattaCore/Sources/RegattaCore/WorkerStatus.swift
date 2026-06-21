@@ -2,6 +2,12 @@
 ///
 /// Transitions follow the real process lifecycle driven by the orchestrator:
 /// `.queued` → `.running` → (`.done` | `.failed` | `.blocked` | `.cancelled`).
+///
+/// ``interrupted`` is the restore state: when Regatta relaunches after a quit or
+/// crash, a worker that was mid-flight cannot have its live agent process
+/// resumed (issue #34). It is restored as ``interrupted`` — a non-terminal,
+/// relaunchable state that signals "this worker had work in progress that was
+/// cut off" so the Fleet UI can offer to relaunch it.
 public enum WorkerStatus: Sendable, Equatable {
     /// The worker is accepted but its agent process has not been spawned yet
     /// (e.g. while its worktree is still being provisioned).
@@ -33,10 +39,18 @@ public enum WorkerStatus: Sendable, Equatable {
     /// The worker was cancelled from the Fleet list before completing.
     case cancelled
 
+    /// The worker's live agent process was lost across an app restart and could
+    /// not be resumed. It is non-terminal and can be relaunched. See issue #34
+    /// (state persistence + session restore).
+    case interrupted
+
     /// Whether the worker has reached a terminal state and can no longer change.
+    ///
+    /// ``interrupted`` is **not** terminal: it represents work that was cut off
+    /// by a restart and is awaiting relaunch.
     public var isTerminal: Bool {
         switch self {
-        case .queued, .running:
+        case .queued, .running, .interrupted:
             return false
         case .done, .failed, .blocked, .cancelled:
             return true
@@ -46,10 +60,11 @@ public enum WorkerStatus: Sendable, Equatable {
     /// Whether the worker can be cancelled in its current state.
     ///
     /// A ``blocked`` worker is cancellable so the human can clear it once they
-    /// have resolved the underlying conflict.
+    /// have resolved the underlying conflict. An ``interrupted`` worker is
+    /// cancellable so the human can dismiss a restored, never-relaunched worker.
     public var isCancellable: Bool {
         switch self {
-        case .queued, .running, .blocked:
+        case .queued, .running, .blocked, .interrupted:
             return true
         case .done, .failed, .cancelled:
             return false

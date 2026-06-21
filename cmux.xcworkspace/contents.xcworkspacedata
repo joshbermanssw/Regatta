@@ -204,6 +204,9 @@
       <FileRef
          location = "group:RegattaMemory">
       </FileRef>
+      <FileRef
+         location = "group:RegattaPersistence">
+      </FileRef>
    </Group>
    <Group
       location = "container:Examples"

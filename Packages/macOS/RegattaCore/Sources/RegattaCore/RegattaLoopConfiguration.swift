@@ -3,7 +3,7 @@
 /// Combines the goal, the normal ``RegattaLoopStopCondition``, and the hard
 /// ``RegattaLoopSafetyCaps``. This is the value the UI captures when a user
 /// configures "run this worker as a loop toward goal X for N iterations".
-public struct RegattaLoopConfiguration: Equatable, Sendable {
+public struct RegattaLoopConfiguration: Equatable, Sendable, Codable {
     /// A human-readable description of what the loop is trying to achieve.
     ///
     /// Recorded with the loop state so the UI can show the goal alongside the
