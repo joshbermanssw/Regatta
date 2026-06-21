@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Ocean water gradient: deep navy -> ocean blue -> teal -->
+    <linearGradient id="water" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#0E3C66"/>
+      <stop offset="0.45" stop-color="#1565C0"/>
+      <stop offset="0.78" stop-color="#1E8FB0"/>
+      <stop offset="1" stop-color="#1FB6A8"/>
+    </linearGradient>
+
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.20"/>
+      <stop offset="0.32" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <linearGradient id="mainsail" x1="0.2" y1="0" x2="1" y2="0.55">
+      <stop offset="0" stop-color="#E9F3FB"/>
+      <stop offset="0.5" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FFFFFF"/>
+    </linearGradient>
+
+    <linearGradient id="jib" x1="0" y1="0" x2="1" y2="0.5">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#D3E6F5"/>
+    </linearGradient>
+
+    <linearGradient id="foam" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C8F4ED"/>
+      <stop offset="1" stop-color="#7FE3D6"/>
+    </linearGradient>
+
+    <filter id="sailshadow" x="-25%" y="-25%" width="150%" height="160%">
+      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#062338" flood-opacity="0.32"/>
+    </filter>
+
+    <!-- Apple-style continuous-corner squircle, ~200 radius on a 824 inset rect -->
+    <clipPath id="squircle">
+      <path d="M512 100
+               C 240 100, 100 240, 100 512
+               C 100 784, 240 924, 512 924
+               C 784 924, 924 784, 924 512
+               C 924 240, 784 100, 512 100 Z"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#squircle)">
+    <rect x="0" y="0" width="1024" height="1024" fill="url(#water)"/>
+    <ellipse cx="512" cy="980" rx="660" ry="280" fill="#063049" opacity="0.32"/>
+
+    <!-- ===== Sails ===== -->
+    <g filter="url(#sailshadow)">
+      <!-- Mast -->
+      <rect x="497" y="188" width="14" height="556" rx="7" fill="#0B2C45"/>
+
+      <!-- Mainsail: tall triangle aft of the mast with a softly curved leech -->
+      <path d="M511 198
+               C 648 358, 720 558, 738 730
+               L 528 730
+               C 524 558, 518 384, 511 198 Z"
+            fill="url(#mainsail)"/>
+
+      <!-- Jib: foresail forward of the mast -->
+      <path d="M491 286
+               C 398 426, 344 604, 326 730
+               L 491 730
+               C 491 582, 491 434, 491 286 Z"
+            fill="url(#jib)"/>
+
+      <!-- seam fold on the mainsail -->
+      <path d="M566 332 C 604 478, 632 606, 644 716"
+            stroke="#C7DEF1" stroke-width="7" fill="none" stroke-linecap="round" opacity="0.65"/>
+    </g>
+
+    <!-- Hull -->
+    <path d="M280 748
+             L 768 748
+             C 726 812, 642 836, 512 836
+             C 382 836, 316 810, 280 748 Z"
+          fill="#0B2C45"/>
+    <path d="M300 766 L 748 766 C 712 812, 632 830, 512 830 C 392 830, 332 808, 300 766 Z"
+          fill="#103755" opacity="0.7"/>
+
+    <!-- ===== Wake / foam ===== -->
+    <path d="M140 820
+             C 296 776, 358 858, 512 840
+             C 666 822, 744 776, 884 820
+             C 762 878, 640 870, 512 876
+             C 384 882, 266 878, 140 820 Z"
+          fill="url(#foam)" opacity="0.92"/>
+    <path d="M200 892
+             C 336 862, 418 910, 512 902
+             C 614 894, 704 862, 824 892"
+          stroke="#D6F7F1" stroke-width="14" fill="none" stroke-linecap="round" opacity="0.72"/>
+
+    <rect x="0" y="0" width="1024" height="1024" fill="url(#sheen)"/>
+  </g>
+</svg>
