@@ -46,6 +46,14 @@ public actor CIFixReactor {
     /// PRs currently observed as failing, used for edge (transition) detection.
     private var failing: Set<String> = []
 
+    /// PRs the reactor has given up auto-fixing — the fix loop hit its cap (or was
+    /// blocked) and flipped the PR to "needs attention" (issue #35). While a PR is
+    /// in this set the reactor stops auto-pushing: it will not spawn another fix
+    /// loop for a repeat failure until the human clears the flag via
+    /// ``clearNeedsAttention(for:)``. This is the "CI never green → stop
+    /// auto-pushing" guarantee.
+    private var needsAttention: Set<String> = []
+
     private var continuations: [UUID: AsyncStream<CIFixOutcome>.Continuation] = [:]
 
     /// Creates a reactor with an explicit loop-condition factory.
@@ -122,16 +130,39 @@ public actor CIFixReactor {
         }
 
         // Failing now. Only react on the transition into failing, and never while
-        // a loop is already running for this PR.
+        // a loop is already running for this PR. Once a PR is flagged
+        // needs-attention, the reactor stops auto-pushing: no new fix loop spawns
+        // until the human clears the flag (issue #35).
         let wasFailing = failing.contains(id)
         failing.insert(id)
-        guard !wasFailing, !inFlight.contains(id) else { return nil }
+        // A PR flagged needs-attention has stopped auto-pushing: it will not spawn
+        // another fix loop for a repeat failure until the human clears the flag
+        // (issue #35 — "CI never green → stop auto-pushing"). The transition and
+        // in-flight guards still apply.
+        guard !wasFailing, !inFlight.contains(id), !needsAttention.contains(id) else { return nil }
 
         inFlight.insert(id)
         defer { inFlight.remove(id) }
         let outcome = await runFixLoop(for: state.pullRequest)
+        // A loop that gives up (cap reached or push blocked) flags the PR so the
+        // reactor stops auto-pushing until the human resolves it.
+        if case .needsAttention = outcome {
+            needsAttention.insert(id)
+        }
         publish(outcome)
         return outcome
+    }
+
+    /// Whether the reactor has flagged this PR as needing human attention and has
+    /// therefore stopped auto-pushing fixes for it (issue #35).
+    public func isNeedingAttention(_ pullRequest: PullRequestRef) -> Bool {
+        needsAttention.contains(pullRequest.id)
+    }
+
+    /// Clears the needs-attention flag for a PR so the reactor will react to a
+    /// future CI failure again. Called when the human has resolved the situation.
+    public func clearNeedsAttention(for pullRequest: PullRequestRef) {
+        needsAttention.remove(pullRequest.id)
     }
 
     /// Drives the spawn + fix loop for one PR and returns its outcome.
