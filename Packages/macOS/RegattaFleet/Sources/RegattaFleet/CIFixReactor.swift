@@ -135,15 +135,20 @@ public actor CIFixReactor {
         // until the human clears the flag (issue #35).
         let wasFailing = failing.contains(id)
         failing.insert(id)
-        // NOTE(#35, commit 1): the `needsAttention` flag does not yet suppress
-        // re-reaction, so a flagged PR keeps spawning fix loops and auto-pushing.
-        // Commit 2 adds the `!needsAttention.contains(id)` guard + flag set so a
-        // PR that hit the cap stops auto-pushing. This is the bug the test catches.
-        guard !wasFailing, !inFlight.contains(id) else { return nil }
+        // A PR flagged needs-attention has stopped auto-pushing: it will not spawn
+        // another fix loop for a repeat failure until the human clears the flag
+        // (issue #35 — "CI never green → stop auto-pushing"). The transition and
+        // in-flight guards still apply.
+        guard !wasFailing, !inFlight.contains(id), !needsAttention.contains(id) else { return nil }
 
         inFlight.insert(id)
         defer { inFlight.remove(id) }
         let outcome = await runFixLoop(for: state.pullRequest)
+        // A loop that gives up (cap reached or push blocked) flags the PR so the
+        // reactor stops auto-pushing until the human resolves it.
+        if case .needsAttention = outcome {
+            needsAttention.insert(id)
+        }
         publish(outcome)
         return outcome
     }

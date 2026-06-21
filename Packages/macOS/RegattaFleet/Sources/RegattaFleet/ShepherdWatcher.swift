@@ -127,10 +127,24 @@ public actor ShepherdWatcher {
                 reviewThreads: threads
             ))
         } catch {
-            // NOTE(#35, commit 1): every poll failure — including gh auth and
-            // rate-limit — is treated as a flat `.failed` with no pause/backoff.
-            // Commit 2 pauses + backs off on auth/rate-limit. This is the bug the
-            // regression test catches.
+            // A `gh` auth or rate-limit failure pauses the shepherd and backs off
+            // exponentially before retrying, preserving the last good data; any
+            // other failure is a transient `.failed` retried on the normal
+            // interval (issue #35).
+            if let gh = error as? GitHubCommandError, gh.shouldPauseShepherd {
+                consecutivePauses += 1
+                let retryAfter = backoffDelay(for: consecutivePauses)
+                publish(ShepherdState(
+                    pullRequest: pullRequest,
+                    phase: .paused(reason: Self.describe(error), retryAfter: retryAfter),
+                    checks: current.checks,
+                    reviewThreads: current.reviewThreads,
+                    autonomyMode: current.autonomyMode,
+                    needsAttention: current.needsAttention
+                ))
+                return
+            }
+            // Preserve last good data; only the phase reflects the transient failure.
             consecutivePauses = 0
             publish(ShepherdState(
                 pullRequest: pullRequest,

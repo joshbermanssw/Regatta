@@ -278,10 +278,15 @@ public actor RegattaOrchestrator {
                 branch: String(branch)
             )
         } catch {
-            // NOTE(#35, commit 1): worktree conflicts are still treated as a flat
-            // failure here; commit 2 parks them as `.blocked`. This is the bug the
-            // regression test catches.
-            updateStatus(id: id, to: .failed(String(describing: error)))
+            // A recoverable worktree conflict (an existing worktree/branch the
+            // human is expected to resolve) parks the worker as `.blocked` so no
+            // work product is lost; any other provisioning error is a genuine
+            // `.failed` (issue #35).
+            if let worktreeError = error as? WorktreeError, worktreeError.isConflict {
+                updateStatus(id: id, to: .blocked(String(describing: error)))
+            } else {
+                updateStatus(id: id, to: .failed(String(describing: error)))
+            }
             return
         }
 
@@ -316,9 +321,12 @@ public actor RegattaOrchestrator {
         var exitCode: Int32?
         for await event in handle.output {
             if Task.isCancelled { return }
-            // NOTE(#35, commit 1): output is not yet retained; commit 2 captures
-            // stdout/stderr so a crashed worker's output survives.
-            if case .terminated(let code) = event {
+            // Retain stdout/stderr in arrival order so a crashed worker's output
+            // survives and reaches the brain on completion (issue #35).
+            switch event {
+            case .stdout(let chunk), .stderr(let chunk):
+                appendOutput(chunk, to: id)
+            case .terminated(let code):
                 exitCode = code
             }
         }
@@ -361,8 +369,10 @@ public actor RegattaOrchestrator {
         // queued worker. This is the single promotion-on-completion/failure path,
         // shared by the lifecycle driver and cancellation.
         if status.isTerminal {
-            // NOTE(#35, commit 1): the brain is not yet notified on terminal;
-            // commit 2 calls notifyObserverIfNeeded so a crash reaches the brain.
+            // Notify the brain (with retained output) exactly once before the slot
+            // is released, so a crash or block reaches the brain even though the
+            // worker has left the active set (issue #35).
+            notifyObserverIfNeeded(id)
             releaseSlotAndSchedule(id)
         }
     }
