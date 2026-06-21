@@ -1461,6 +1461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
         scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
         if !isRunningUnderXCTest, RegattaFeatureFlag().isEnabled {
+            RegattaToastManager.shared.start()
             restoreRegattaSessionOnLaunch()
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.complete")

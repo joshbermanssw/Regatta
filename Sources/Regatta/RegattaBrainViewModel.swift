@@ -41,6 +41,19 @@ final class RegattaBrainViewModel {
     @ObservationIgnored
     private var eventTask: Task<Void, Never>?
 
+    /// The toast center for brain start/send failure feedback. Defaults to the
+    /// shared app-lifetime instance; injectable for tests.
+    @ObservationIgnored
+    private let toasts: RegattaToastCenter
+
+    /// Creates a brain view-model.
+    ///
+    /// - Parameter toasts: The toast center for failure feedback (defaults to the
+    ///   shared instance).
+    init(toasts: RegattaToastCenter = .shared) {
+        self.toasts = toasts
+    }
+
     // MARK: - Lifecycle
 
     /// Spawns the `claude` subprocess (if not already running) and begins
@@ -57,6 +70,10 @@ final class RegattaBrainViewModel {
             launch = try RegattaBrainLaunch.makeClaude()
         } catch {
             status = .failed(error.localizedDescription)
+            toasts.error(
+                String(localized: "regatta.toast.brain.startFailed.title", defaultValue: "Brain couldn't start"),
+                error.localizedDescription
+            )
             return
         }
 
@@ -72,6 +89,10 @@ final class RegattaBrainViewModel {
             } catch {
                 self.status = .failed(error.localizedDescription)
                 self.session = nil
+                self.toasts.error(
+                    String(localized: "regatta.toast.brain.startFailed.title", defaultValue: "Brain couldn't start"),
+                    error.localizedDescription
+                )
                 return
             }
             for await event in stream {
@@ -96,8 +117,16 @@ final class RegattaBrainViewModel {
         guard !trimmed.isEmpty, let session else { return }
         status = .thinking
         let payload = messagePayload(for: trimmed, context: attachedContext)
-        Task {
-            try? await session.send(payload)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await session.send(payload)
+            } catch {
+                self.toasts.error(
+                    String(localized: "regatta.toast.brain.sendFailed.title", defaultValue: "Couldn't send to Brain"),
+                    error.localizedDescription
+                )
+            }
             // Re-pull the transcript from the session to stay authoritative.
             let pulled = await session.messages()
             self.messages = pulled

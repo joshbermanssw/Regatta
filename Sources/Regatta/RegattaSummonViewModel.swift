@@ -55,6 +55,10 @@ final class RegattaSummonViewModel {
     @ObservationIgnored
     private var observeTask: Task<Void, Never>?
 
+    /// The toast center for spawn/cancel/remove feedback.
+    @ObservationIgnored
+    private let toasts: RegattaToastCenter
+
     // MARK: - Init
 
     /// Creates a Summon overlay view-model.
@@ -64,12 +68,16 @@ final class RegattaSummonViewModel {
     ///     to the app-lifetime instance from ``RegattaFleetManager``.
     ///   - spawnSpecProvider: Builds the ``WorkerSpec`` for the spawn tile.
     ///     Defaults to ``RegattaSummonViewModel/defaultSpawnSpec()``.
+    ///   - toasts: The toast center for action feedback. Defaults to the shared
+    ///     app-lifetime instance.
     init(
         orchestrator: RegattaOrchestrator? = nil,
-        spawnSpecProvider: (@MainActor () -> WorkerSpec)? = nil
+        spawnSpecProvider: (@MainActor () -> WorkerSpec)? = nil,
+        toasts: RegattaToastCenter = .shared
     ) {
         self.orchestrator = orchestrator ?? RegattaFleetManager.shared.orchestrator
         self.spawnSpecProvider = spawnSpecProvider ?? RegattaSummonViewModel.defaultSpawnSpec
+        self.toasts = toasts
     }
 
     // MARK: - Lifecycle
@@ -113,24 +121,50 @@ final class RegattaSummonViewModel {
     // MARK: - Spawn intent
 
     /// Spawns a new worker from the `+ spawn worker` tile via the orchestrator.
+    /// Emits a success toast naming the worker.
     func spawnWorker() {
         let spec = spawnSpecProvider()
-        Task { await orchestrator.spawnWorker(spec) }
+        Task { [weak self] in
+            guard let self else { return }
+            _ = await self.orchestrator.spawnWorker(spec)
+            self.toasts.success(
+                String(localized: "regatta.toast.worker.spawned.title", defaultValue: "Worker spawned"),
+                spec.name
+            )
+        }
     }
 
-    /// Cancels a worker shown in the overlay grid.
+    /// Cancels a worker shown in the overlay grid. Emits a toast on success/failure.
     ///
     /// - Parameter id: The worker to cancel.
     func cancelWorker(_ id: UUID) {
-        Task { try? await orchestrator.cancelWorker(id) }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.orchestrator.cancelWorker(id)
+                self.toasts.info(
+                    String(localized: "regatta.toast.worker.cancelled.title", defaultValue: "Worker cancelled")
+                )
+            } catch {
+                self.toasts.error(
+                    String(localized: "regatta.toast.worker.cancelFailed.title", defaultValue: "Couldn't cancel worker")
+                )
+            }
+        }
     }
 
     /// Removes a worker from the grid entirely (cancelling first if still running),
-    /// so finished or failed workers can be cleared.
+    /// so finished or failed workers can be cleared. Emits a toast.
     ///
     /// - Parameter id: The worker to remove.
     func removeWorker(_ id: UUID) {
-        Task { await orchestrator.removeWorker(id) }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.orchestrator.removeWorker(id)
+            self.toasts.info(
+                String(localized: "regatta.toast.worker.removed.title", defaultValue: "Worker removed")
+            )
+        }
     }
 
     // MARK: - Default spawn spec
