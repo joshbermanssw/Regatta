@@ -54,7 +54,7 @@ struct MobilePairingView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(String(localized: "mobile.pairing.window.heading", defaultValue: "Pair your iPhone"))
                 .font(.title2.weight(.semibold))
-            Text(String(localized: "mobile.pairing.window.subheading", defaultValue: "Scan this code with the cmux app on your iPhone to sync your terminal workspaces."))
+            Text(String(localized: "mobile.pairing.window.subheading", defaultValue: "Scan this code with the Regatta app on your iPhone to sync your terminal workspaces."))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -72,7 +72,7 @@ struct MobilePairingView: View {
 
     private var signInRow: some View {
         requirementRow(
-            title: String(localized: "mobile.pairing.req.signIn.title", defaultValue: "Signed in to cmux"),
+            title: String(localized: "mobile.pairing.req.signIn.title", defaultValue: "Signed in to Regatta"),
             subtitle: model.signedInEmail
                 ?? String(localized: "mobile.pairing.req.signIn.subtitle", defaultValue: "Sign in to authorize this Mac for pairing.")
         ) {
@@ -193,7 +193,7 @@ struct MobilePairingView: View {
             Image(systemName: "person.crop.circle.badge.plus")
                 .font(.system(size: 28))
                 .foregroundStyle(.tint)
-            Text(String(localized: "mobile.pairing.signIn.prompt", defaultValue: "Sign in with your cmux account to pair your iPhone."))
+            Text(String(localized: "mobile.pairing.signIn.prompt", defaultValue: "Sign in with your Regatta account to pair your iPhone."))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -282,14 +282,14 @@ struct MobilePairingView: View {
 
     private var steps: some View {
         VStack(alignment: .leading, spacing: 10) {
-            step(1, String(localized: "mobile.pairing.step.install", defaultValue: "Install cmux on your iPhone and open it."))
+            step(1, String(localized: "mobile.pairing.step.install", defaultValue: "Install Regatta on your iPhone and open it."))
             HStack(spacing: 4) {
                 Spacer(minLength: 30)
                 Text(String(localized: "mobile.pairing.getApp.prompt", defaultValue: "Don't have it yet?"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Link(
-                    String(localized: "mobile.pairing.getApp.link", defaultValue: "Get cmux for iPhone"),
+                    String(localized: "mobile.pairing.getApp.link", defaultValue: "Get Regatta for iPhone"),
                     destination: Self.iphoneAppURL
                 )
                 .font(.caption)

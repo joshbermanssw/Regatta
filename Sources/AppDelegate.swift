@@ -1902,7 +1902,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         DispatchQueue.main.async {
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
+            alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit Regatta?")
             alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
             alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
             alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
@@ -2095,7 +2095,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 surfaceId: nil,
                 title: String(
                     localized: "crashBreadcrumb.title",
-                    defaultValue: "cmux crashed during your last session"
+                    defaultValue: "Regatta crashed during your last session"
                 ),
                 subtitle: String(
                     localized: "crashBreadcrumb.subtitle",
@@ -8551,13 +8551,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 informativeText += "\n\n" + String(localized: "cli.install.adminRequired", defaultValue: "Administrator privileges were required to write to /usr/local/bin.")
             }
             presentCLIPathAlert(
-                title: String(localized: "cli.installed", defaultValue: "cmux CLI Installed"),
+                title: String(localized: "cli.installed", defaultValue: "Regatta CLI Installed"),
                 informativeText: informativeText,
                 style: .informational
             )
         } catch {
             presentCLIPathAlert(
-                title: String(localized: "cli.installFailed", defaultValue: "Couldn't Install cmux CLI"),
+                title: String(localized: "cli.installFailed", defaultValue: "Couldn't Install Regatta CLI"),
                 informativeText: error.localizedDescription,
                 style: .warning
             )
@@ -8570,19 +8570,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let outcome = try installer.uninstall()
             let prefix = outcome.removedExistingEntry
                 ? String(localized: "cli.uninstall.removed", defaultValue: "Removed \(outcome.destinationURL.path).")
-                : String(localized: "cli.uninstall.notFound", defaultValue: "No cmux CLI symlink was found at \(outcome.destinationURL.path).")
+                : String(localized: "cli.uninstall.notFound", defaultValue: "No Regatta CLI symlink was found at \(outcome.destinationURL.path).")
             var informativeText = prefix
             if outcome.usedAdministratorPrivileges {
                 informativeText += "\n\n" + String(localized: "cli.uninstall.adminRequired", defaultValue: "Administrator privileges were required to modify /usr/local/bin.")
             }
             presentCLIPathAlert(
-                title: String(localized: "cli.uninstalled", defaultValue: "cmux CLI Uninstalled"),
+                title: String(localized: "cli.uninstalled", defaultValue: "Regatta CLI Uninstalled"),
                 informativeText: informativeText,
                 style: .informational
             )
         } catch {
             presentCLIPathAlert(
-                title: String(localized: "cli.uninstallFailed", defaultValue: "Couldn't Uninstall cmux CLI"),
+                title: String(localized: "cli.uninstallFailed", defaultValue: "Couldn't Uninstall Regatta CLI"),
                 informativeText: error.localizedDescription,
                 style: .warning
             )
@@ -12400,7 +12400,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
+        alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit Regatta?")
         alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
         alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
