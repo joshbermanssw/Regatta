@@ -17,21 +17,51 @@ import RegattaCore
 struct FleetSectionView: View {
     let viewModel: RegattaFleetViewModel
 
+    /// Summons the worker-terminal grid overlay over the main work area (issue #17).
+    /// Captured once at this level so the action closure passed into rows holds no
+    /// `@Observable` reference (snapshot-boundary rule).
+    private let onSummon: () -> Void = { RegattaSummonManager.shared.summon() }
+
     var body: some View {
         // Capture the snapshot at this level — no @Observable read inside ForEach.
         let snapshots: [Worker] = viewModel.workers
+        let summon = onSummon
 
         return Group {
             if snapshots.isEmpty {
                 emptyView
             } else {
-                workerList(snapshots)
+                workerList(snapshots, summon: summon)
             }
+            summonRow(summon)
         }
         .frame(maxWidth: .infinity)
         .onAppear {
             viewModel.startObserving()
         }
+    }
+
+    // MARK: - Summon control
+
+    /// A full-width control that opens the worker-terminal grid overlay.
+    private func summonRow(_ summon: @escaping () -> Void) -> some View {
+        Button(action: summon) {
+            HStack(spacing: 6) {
+                Image(systemName: "rectangle.grid.2x2")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Text(String(localized: "regatta.summon.open", defaultValue: "Open Fleet grid"))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(String(localized: "regatta.summon.open.help", defaultValue: "Open the worker terminal grid"))
+        .accessibilityIdentifier("RegattaSummonOpenButton")
     }
 
     // MARK: - Empty
@@ -55,12 +85,13 @@ struct FleetSectionView: View {
 
     /// The worker list. Snapshot-boundary: `snapshots` and the per-row cancel
     /// closure are the only things crossing into the lazy rows.
-    private func workerList(_ snapshots: [Worker]) -> some View {
+    private func workerList(_ snapshots: [Worker], summon: @escaping () -> Void) -> some View {
         LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(snapshots) { worker in
                 WorkerRow(
                     worker: worker,
-                    onCancel: { viewModel.cancelWorker(worker.id) }
+                    onCancel: { viewModel.cancelWorker(worker.id) },
+                    onSummon: summon
                 )
             }
         }
@@ -76,6 +107,9 @@ struct FleetSectionView: View {
 private struct WorkerRow: View {
     let worker: Worker
     let onCancel: () -> Void
+    /// Opens the worker-terminal grid overlay (issue #17). A clicked worker row
+    /// summons the grid filling the main work area.
+    let onSummon: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -99,7 +133,9 @@ private struct WorkerRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .contentShape(Rectangle())
+        .onTapGesture(perform: onSummon)
         .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel(
             String.localizedStringWithFormat(
                 String(localized: "regatta.fleet.worker.a11y", defaultValue: "Worker %@, %@"),
