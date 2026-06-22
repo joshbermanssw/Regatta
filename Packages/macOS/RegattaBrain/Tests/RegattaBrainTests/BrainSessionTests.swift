@@ -11,10 +11,10 @@ struct BrainSessionTests {
 
     /// Resolves the bundled fake agent and builds a launch that runs it via bash
     /// (so the resource's executable bit is irrelevant).
-    private func fakeLaunch() throws -> BrainLaunch {
+    private func fakeLaunch(resource: String = "fake-claude") throws -> BrainLaunch {
         let url = try #require(
-            Bundle.module.url(forResource: "fake-claude", withExtension: "sh"),
-            "fake-claude.sh resource missing from test bundle"
+            Bundle.module.url(forResource: resource, withExtension: "sh"),
+            "\(resource).sh resource missing from test bundle"
         )
         return BrainLaunch(
             executableURL: URL(fileURLWithPath: "/bin/bash"),
@@ -108,6 +108,82 @@ struct BrainSessionTests {
         await session.stop()
     }
 
+    /// Regression for the Brain-not-responding bug: real Claude Code emits
+    /// per-token text under a `stream_event` envelope (not bare
+    /// `content_block_delta`) and a terminal `result` (not `message_stop`). The
+    /// fake now emits those exact shapes plus `system` hook/init noise; the
+    /// parser must still surface the assistant text and complete the turn.
+    @Test func parsesRealStreamJsonEnvelopeShapes() async throws {
+        let session = BrainSession(launch: try fakeLaunch())
+        let stream = try await session.start()
+        var iterator = stream.makeAsyncIterator()
+
+        try await session.send("hello")
+        let reply = await nextTurn(&iterator)
+        #expect(reply == "echo: hello")
+
+        let messages = await session.messages()
+        #expect(messages.count == 2)
+        #expect(messages[1].role == .assistant)
+        // Exactly once — the full `assistant` message must NOT double-append on
+        // top of the streamed partial deltas.
+        #expect(messages[1].text == "echo: hello")
+
+        await session.stop()
+    }
+
+    /// When no partial `stream_event` deltas are streamed, the assistant text
+    /// must still be recovered from the full `assistant` message.
+    @Test func recoversAssistantTextFromFullMessageWithoutPartials() async throws {
+        let session = BrainSession(launch: try fakeLaunch(resource: "fake-claude-no-partials"))
+        let stream = try await session.start()
+        var iterator = stream.makeAsyncIterator()
+
+        try await session.send("world")
+        let reply = await nextTurn(&iterator)
+        #expect(reply == "echo: world")
+
+        let messages = await session.messages()
+        #expect(messages.count == 2)
+        #expect(messages[1].text == "echo: world")
+
+        await session.stop()
+    }
+
+    /// An errored terminal `result` must complete the turn in `.failed` (not
+    /// silently `.idle`) so the UI surfaces the failure.
+    @Test func errorResultEndsTurnInFailedStatus() async throws {
+        let session = BrainSession(launch: try fakeLaunch(resource: "fake-claude-error"))
+        let stream = try await session.start()
+        var iterator = stream.makeAsyncIterator()
+
+        try await session.send("boom")
+        var sawTurnCompleted = false
+        var failure: String?
+        loop: while let event = await iterator.next() {
+            switch event {
+            case .turnCompleted:
+                sawTurnCompleted = true
+            case .status(.failed(let detail)):
+                failure = detail
+                break loop
+            case .status(.idle):
+                // The startup `.idle` precedes the turn; only an `.idle` AFTER
+                // the turn completed would be the silent-recovery bug.
+                if sawTurnCompleted {
+                    Issue.record("error turn must not return to .idle")
+                    break loop
+                }
+            default:
+                break
+            }
+        }
+        #expect(sawTurnCompleted)
+        #expect(failure == "overloaded")
+
+        await session.stop()
+    }
+
     @Test func stopTerminatesAndFinishesStream() async throws {
         let session = BrainSession(launch: try fakeLaunch())
         let stream = try await session.start()
@@ -116,10 +192,12 @@ struct BrainSessionTests {
 
         // Draining the stream must complete (it finishes after `.exited`) rather
         // than hang — proving teardown closes the persistent process cleanly.
-        var sawExit = false
+        // A user-initiated stop terminates via SIGTERM but must report a clean
+        // exit (code 0), not the signal number, so the UI shows no false crash.
+        var exitCode: Int32?
         for await event in stream {
-            if case .exited = event { sawExit = true }
+            if case .exited(let code) = event { exitCode = code }
         }
-        #expect(sawExit)
+        #expect(exitCode == 0)
     }
 }

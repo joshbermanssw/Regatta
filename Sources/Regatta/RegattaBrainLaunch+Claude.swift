@@ -12,8 +12,28 @@ import RegattaBrain
 /// Chosen flags: `-p --output-format stream-json --input-format stream-json
 /// --include-partial-messages --verbose` — exactly the flags
 /// `AgentSessionProviderID.claude.launchArguments` uses, ensuring the stream-json
-/// wire format that ``BrainSession`` already parses.
+/// wire format that ``BrainSession`` parses.
+///
+/// On top of those, the Brain appends *isolation* flags so it starts fast and
+/// reliably regardless of the user's global Claude Code config:
+/// - `--strict-mcp-config` (with no `--mcp-config`): ignore every globally
+///   configured MCP server, so MCP startup latency and failures can't delay or
+///   wedge the Brain.
+/// - `--settings '{"disableAllHooks":true}'`: skip the user's global
+///   SessionStart / hook plugins (Vercel, superpowers, etc.) that otherwise run
+///   on every launch and add latency/noise. Auth (OAuth/keychain) is preserved
+///   — unlike `--bare`, which forces `ANTHROPIC_API_KEY`-only auth and would
+///   break OAuth users.
 enum RegattaBrainLaunch {
+    /// Extra arguments appended to the shared Claude launch flags to isolate the
+    /// Brain from the user's heavy global agent configuration. Kept here (not in
+    /// the shared ``AgentSessionProviderID/launchArguments``) so the main
+    /// agent-session feature is unaffected.
+    static let isolationArguments: [String] = [
+        "--strict-mcp-config",
+        "--settings", #"{"disableAllHooks":true}"#,
+    ]
+
     /// Returns a ``BrainLaunch`` for `claude` in stream-json mode.
     ///
     /// - Throws: ``AgentExecutableResolverError`` when `claude` is not found.
@@ -24,7 +44,7 @@ enum RegattaBrainLaunch {
         let plan = try resolver.resolve(.claude)
         return BrainLaunch(
             executableURL: plan.executableURL,
-            arguments: plan.arguments,
+            arguments: plan.arguments + isolationArguments,
             environment: plan.environment
         )
     }
