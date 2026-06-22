@@ -12,6 +12,7 @@ import RegattaGitHub
 final class StubWorkerSpawner: WorkerSpawning, @unchecked Sendable {
     private let lock = NSLock()
     private var _spawned: [CIFixWorkerSpec] = []
+    private var _handles: [StubWorkerHandle] = []
     private var _requests: [ReviewThreadWorkRequest] = []
     private var _conversationRequests: [ConversationCommentWorkRequest] = []
     private var _reviewRequests: [ReviewSummaryWorkRequest] = []
@@ -61,9 +62,17 @@ final class StubWorkerSpawner: WorkerSpawning, @unchecked Sendable {
     var spawnCount: Int { lock.withLock { _spawned.count + _requests.count } }
 
     func spawn(_ spec: CIFixWorkerSpec) async -> any CIFixWorkerHandle {
-        lock.withLock { _spawned.append(spec) }
-        return StubWorkerHandle(id: spec.id, producesFix: producesFix)
+        let handle = StubWorkerHandle(id: spec.id, producesFix: producesFix)
+        lock.withLock {
+            _spawned.append(spec)
+            _handles.append(handle)
+        }
+        return handle
     }
+
+    /// The most recently spawned ci-fix handle, for asserting `attemptFix()` call
+    /// counts (e.g. that a no-progress stop did not re-attempt the worker).
+    var lastHandle: StubWorkerHandle? { lock.withLock { _handles.last } }
 
     // MARK: - review-thread spawn (#31)
 
@@ -106,14 +115,25 @@ final class StubWorkerSpawner: WorkerSpawning, @unchecked Sendable {
 }
 
 /// A worker handle whose ``attemptFix()`` always returns a fixed verdict.
+///
+/// Records how many times ``attemptFix()`` was invoked so a test can assert the
+/// loop did not re-attempt the worker after a no-progress stop.
 final class StubWorkerHandle: CIFixWorkerHandle, @unchecked Sendable {
     let id: String
     private let producesFix: Bool
+    private let lock = NSLock()
+    private var _attemptCount = 0
 
     init(id: String, producesFix: Bool) {
         self.id = id
         self.producesFix = producesFix
     }
 
-    func attemptFix() async -> Bool { producesFix }
+    /// Number of times ``attemptFix()`` has been invoked on this handle.
+    var attemptCount: Int { lock.withLock { _attemptCount } }
+
+    func attemptFix() async -> Bool {
+        lock.withLock { _attemptCount += 1 }
+        return producesFix
+    }
 }
