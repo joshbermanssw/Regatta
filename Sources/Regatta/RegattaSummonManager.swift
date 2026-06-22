@@ -39,9 +39,19 @@ final class RegattaSummonManager {
 
     /// Summons the overlay grid over the main window's content area.
     ///
-    /// - Parameter mainWindow: The window whose content frame the overlay covers.
-    ///   Defaults to the key window.
-    func summon(over mainWindow: NSWindow? = NSApp.keyWindow) {
+    /// - Parameters:
+    ///   - mainWindow: The window whose content frame the overlay covers.
+    ///     Defaults to the key window.
+    ///   - contextProvider: Supplies the active workspace tab's context so the spawn
+    ///     form defaults its repository to the active repo. Recorded on the
+    ///     view-model so the window-hosted overlay can reach it.
+    func summon(
+        over mainWindow: NSWindow? = NSApp.keyWindow,
+        contextProvider: (@MainActor () -> AttachedTabContext?)? = nil
+    ) {
+        if let contextProvider {
+            viewModel.setContextProvider(contextProvider)
+        }
         viewModel.summon()
         present(over: mainWindow)
     }

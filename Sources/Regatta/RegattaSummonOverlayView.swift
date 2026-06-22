@@ -25,6 +25,12 @@ import RegattaCore
 struct RegattaSummonOverlayView: View {
     let viewModel: RegattaSummonViewModel
 
+    /// The spawn-form view-model while the form sheet is presented, or `nil`. Built
+    /// from the overlay view-model when the spawn tile is activated so it carries the
+    /// active tab's default repository. Mounted **outside** the tile `ForEach`, so
+    /// its `@Observable` reference never crosses the grid snapshot boundary.
+    @State private var spawnForm: RegattaSpawnFormViewModel?
+
     var body: some View {
         // Capture the snapshot at this level — no @Observable read inside ForEach.
         let grid = viewModel.grid
@@ -53,6 +59,12 @@ struct RegattaSummonOverlayView: View {
         .background(EscDismissCatcher { viewModel.dismiss() })
         .onAppear { viewModel.startObserving() }
         .accessibilityIdentifier("RegattaSummonOverlay")
+        .sheet(item: $spawnForm) { formViewModel in
+            RegattaSpawnFormView(
+                viewModel: formViewModel,
+                onClose: { spawnForm = nil }
+            )
+        }
     }
 
     // MARK: - Backdrop
@@ -104,7 +116,7 @@ struct RegattaSummonOverlayView: View {
             )
             .frame(minHeight: Self.cellMinHeight)
         case .spawn:
-            SpawnTile(onSpawn: { viewModel.spawnWorker() })
+            SpawnTile(onSpawn: { spawnForm = viewModel.makeSpawnFormViewModel() })
                 .frame(minHeight: Self.cellMinHeight)
         }
     }

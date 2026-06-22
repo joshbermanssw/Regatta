@@ -36,10 +36,14 @@ struct FleetSectionView: View {
     /// handoff affordance.
     let contextProvider: (@MainActor () -> AttachedTabContext?)?
 
-    /// Summons the worker-terminal grid overlay over the main work area (#17).
-    /// Captured once at this level so the action closure passed into rows holds no
-    /// `@Observable` reference (snapshot-boundary rule).
-    private let onSummon: () -> Void = { RegattaSummonManager.shared.summon() }
+    /// Builds the summon action, forwarding the active-tab `contextProvider` so the
+    /// overlay's spawn form defaults its repository to the active repo. The closure
+    /// captures only the value-typed `contextProvider` (not an `@Observable`
+    /// reference), so it is safe to pass into rows under the snapshot-boundary rule.
+    private var onSummon: () -> Void {
+        let provider = contextProvider
+        return { RegattaSummonManager.shared.summon(contextProvider: provider) }
+    }
 
     /// The worker whose loop view is currently open, or `nil` if none. The loop
     /// view is mounted **outside** the worker `LazyVStack` so its `@Observable`
