@@ -26,6 +26,15 @@ public struct ShepherdState: Sendable, Equatable, Identifiable, FleetEntry {
     /// Empty until the first poll completes.
     public let reviewThreads: [ReviewThread]
 
+    /// The top-level PR conversation comments from the most recent successful
+    /// poll. Empty until the first poll completes.
+    ///
+    /// These are the general PR-discussion comments (GitHub "issue comments") the
+    /// conversation-comment reactor watches — distinct from the inline
+    /// ``reviewThreads``. Additive with a default of `[]` so persisted snapshots
+    /// written before this field still decode (and existing tests still build).
+    public let conversationComments: [PRConversationComment]
+
     /// The per-PR autonomy policy gating outward actions (push/reply/resolve).
     ///
     /// Defaults to ``AutonomyMode/staged`` for new handoffs (#32 safety policy).
@@ -62,6 +71,8 @@ public struct ShepherdState: Sendable, Equatable, Identifiable, FleetEntry {
     ///   - phase: The polling lifecycle phase.
     ///   - checks: The latest CI check rollup. Defaults to empty.
     ///   - reviewThreads: The latest review threads. Defaults to empty.
+    ///   - conversationComments: The latest top-level PR conversation comments.
+    ///     Defaults to empty.
     ///   - autonomyMode: The per-PR autonomy policy. Defaults to
     ///     ``AutonomyMode/staged`` (the #32 safety default for new handoffs).
     ///   - needsAttention: The human-resolution reason, or `nil` (issue #35).
@@ -70,6 +81,7 @@ public struct ShepherdState: Sendable, Equatable, Identifiable, FleetEntry {
         phase: ShepherdPollPhase,
         checks: PRCheckSummary = PRCheckSummary(checks: []),
         reviewThreads: [ReviewThread] = [],
+        conversationComments: [PRConversationComment] = [],
         autonomyMode: AutonomyMode = .staged,
         needsAttention: String? = nil
     ) {
@@ -77,6 +89,7 @@ public struct ShepherdState: Sendable, Equatable, Identifiable, FleetEntry {
         self.phase = phase
         self.checks = checks
         self.reviewThreads = reviewThreads
+        self.conversationComments = conversationComments
         self.autonomyMode = autonomyMode
         self.needsAttention = needsAttention
     }

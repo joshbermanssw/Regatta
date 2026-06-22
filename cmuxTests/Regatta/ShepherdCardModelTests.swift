@@ -188,4 +188,49 @@ struct ShepherdCardModelTests {
         let model = ShepherdCardModel(state: state)
         #expect(model.fixLoop == nil)
     }
+
+    // MARK: - Conversation comments
+
+    private func conversationComment(_ id: String, author: String, body: String = "please fix") -> PRConversationComment {
+        PRConversationComment(
+            id: id,
+            body: body,
+            author: author,
+            url: "https://example.com/\(id)",
+            createdAt: "2026-06-21T12:00:00Z"
+        )
+    }
+
+    @Test("conversation comments project into rows")
+    func conversationRowsProject() {
+        let state = ShepherdState(
+            pullRequest: ref(),
+            phase: .watching,
+            conversationComments: [
+                conversationComment("C1", author: "alice"),
+                conversationComment("C2", author: "bob"),
+            ]
+        )
+        let model = ShepherdCardModel(state: state)
+        #expect(model.conversationRows.map(\.id) == ["C1", "C2"])
+        #expect(model.conversationRows.first?.author == "alice")
+        #expect(model.conversationCount == 2)
+    }
+
+    @Test("the shepherd's own replies are marked self and excluded from the actionable count")
+    func selfCommentsMarkedAndExcluded() {
+        let state = ShepherdState(
+            pullRequest: ref(),
+            phase: .watching,
+            conversationComments: [
+                conversationComment("C1", author: "alice"),
+                conversationComment("MINE", author: "shepherd-bot"),
+            ]
+        )
+        let model = ShepherdCardModel(state: state, shepherdLogin: "shepherd-bot")
+        let mine = model.conversationRows.first { $0.id == "MINE" }
+        #expect(mine?.isSelf == true)
+        // Only the non-self comment counts toward the actionable conversation count.
+        #expect(model.conversationCount == 1)
+    }
 }

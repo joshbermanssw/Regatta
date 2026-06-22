@@ -118,13 +118,17 @@ public actor ShepherdWatcher {
             let threads = try await poller.fetchReviewThreads(
                 owner: pullRequest.owner, repo: pullRequest.repo, prNumber: pullRequest.number
             )
+            let conversationComments = try await poller.fetchConversationComments(
+                owner: pullRequest.owner, repo: pullRequest.repo, prNumber: pullRequest.number
+            )
             // A clean poll clears any backoff streak.
             consecutivePauses = 0
             publish(ShepherdState(
                 pullRequest: pullRequest,
                 phase: .watching,
                 checks: PRCheckSummary(checks: checks),
-                reviewThreads: threads
+                reviewThreads: threads,
+                conversationComments: conversationComments
             ))
         } catch {
             // A `gh` auth or rate-limit failure pauses the shepherd and backs off
@@ -139,6 +143,7 @@ public actor ShepherdWatcher {
                     phase: .paused(reason: Self.describe(error), retryAfter: retryAfter),
                     checks: current.checks,
                     reviewThreads: current.reviewThreads,
+                    conversationComments: current.conversationComments,
                     autonomyMode: current.autonomyMode,
                     needsAttention: current.needsAttention
                 ))
@@ -150,7 +155,8 @@ public actor ShepherdWatcher {
                 pullRequest: pullRequest,
                 phase: .failed(Self.describe(error)),
                 checks: current.checks,
-                reviewThreads: current.reviewThreads
+                reviewThreads: current.reviewThreads,
+                conversationComments: current.conversationComments
             ))
         }
     }

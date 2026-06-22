@@ -233,4 +233,8 @@ private struct TestGreenPoller: PullRequestPolling {
     func fetchReviewThreads(owner: String, repo: String, prNumber: Int) async throws -> [ReviewThread] {
         []
     }
+    func fetchConversationComments(owner: String, repo: String, prNumber: Int) async throws -> [PRConversationComment] {
+        []
+    }
+    func currentUserLogin() async throws -> String { "shepherd-bot" }
 }

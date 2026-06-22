@@ -65,15 +65,61 @@ public struct ReviewThreadWorkResult: Sendable, Equatable {
     }
 }
 
+/// A request to spawn an ephemeral worker that addresses one top-level PR
+/// conversation comment (ARMADA-style "comment on the PR → a worker addresses
+/// it").
+///
+/// Carries the context an addressing agent needs: which PR and the conversation
+/// comment that triggered it. The orchestrator turns this into a live agent pane;
+/// a stub spawner records the request in tests.
+public struct ConversationCommentWorkRequest: Sendable, Equatable {
+    /// The pull request whose conversation comment is being addressed.
+    public let pullRequest: PullRequestRef
+    /// The conversation comment the worker must address.
+    public let comment: PRConversationComment
+
+    /// Creates a work request.
+    /// - Parameters:
+    ///   - pullRequest: The PR the comment belongs to.
+    ///   - comment: The comment to address.
+    public init(pullRequest: PullRequestRef, comment: PRConversationComment) {
+        self.pullRequest = pullRequest
+        self.comment = comment
+    }
+}
+
+/// The outcome of an addressing worker run for a conversation comment.
+///
+/// The reactor uses this to decide whether to post a reply once the worker
+/// finishes. Unlike a review thread there is nothing to "resolve" — a
+/// conversation comment is just a timeline entry — so the result models only the
+/// pushed-change and reply signals.
+public struct ConversationCommentWorkResult: Sendable, Equatable {
+    /// Whether the worker pushed a code change addressing the comment.
+    public let pushedCodeChange: Bool
+    /// An optional reply to post in the conversation, or `nil` to post none.
+    public let replyBody: String?
+
+    /// Creates a work result.
+    /// - Parameters:
+    ///   - pushedCodeChange: Whether code was pushed.
+    ///   - replyBody: Reply to post, or `nil` for none.
+    public init(pushedCodeChange: Bool, replyBody: String?) {
+        self.pushedCodeChange = pushedCodeChange
+        self.replyBody = replyBody
+    }
+}
+
 /// The single injection seam for spawning Fleet workers, mirroring the pane
 /// bridge / orchestrator from issues #14 and #16.
 ///
-/// Both reactive layers spawn agent workers through this one seam: the ci-fix
-/// loop (#30) spawns a `ci-fix` worker scoped to a PR branch, and the
-/// review-thread handler (#31) spawns an addressing worker scoped to a single
-/// thread. Depending on `any WorkerSpawning` lets both ship and be tested
-/// independently; the production spawner is wired when the orchestrator lands,
-/// and tests inject stubs.
+/// All reactive layers spawn agent workers through this one seam: the ci-fix
+/// loop (#30) spawns a `ci-fix` worker scoped to a PR branch, the review-thread
+/// handler (#31) spawns an addressing worker scoped to a single thread, and the
+/// conversation-comment handler spawns an addressing worker scoped to one
+/// top-level PR comment. Depending on `any WorkerSpawning` lets each ship and be
+/// tested independently; the production spawner is wired when the orchestrator
+/// lands, and tests inject stubs.
 public protocol WorkerSpawning: Sendable {
     /// Spawns a `ci-fix` worker scoped to the spec's PR branch/worktree (#30).
     ///
@@ -89,4 +135,14 @@ public protocol WorkerSpawning: Sendable {
     /// - Throws: Any error the underlying spawn/agent run surfaces; the reactor
     ///   treats a throw as "thread not handled" so it can be retried.
     func spawnWorker(for request: ReviewThreadWorkRequest) async throws -> ReviewThreadWorkResult
+
+    /// Spawns a worker to address a top-level PR conversation comment and awaits
+    /// its result.
+    ///
+    /// - Parameter request: The conversation-comment context to address.
+    /// - Returns: The worker's outcome — whether it pushed code and what reply to
+    ///   post.
+    /// - Throws: Any error the underlying spawn/agent run surfaces; the reactor
+    ///   treats a throw as "comment not handled" so it can be retried.
+    func spawnWorker(for request: ConversationCommentWorkRequest) async throws -> ConversationCommentWorkResult
 }

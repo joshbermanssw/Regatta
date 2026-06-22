@@ -38,6 +38,8 @@
 ///   }
 /// }
 /// ```
+import Foundation
+
 public actor GitHubPoller {
     private let commandRunner: any GitHubCommandRunning
 
@@ -77,6 +79,65 @@ public actor GitHubPoller {
             "--json", "statusCheckRollup",
         ])
         return try parseChecks(from: json)
+    }
+
+    // MARK: - Conversation comments
+
+    /// Fetches the top-level conversation (issue) comments for a pull request.
+    ///
+    /// Shells out to:
+    /// ```
+    /// gh api repos/<owner>/<repo>/issues/<prNumber>/comments --paginate
+    /// ```
+    /// A PR is an issue for the comments endpoint, so this returns the comments
+    /// posted in the PR's main conversation timeline — *not* the inline
+    /// code-review comments (those are ``fetchReviewThreads(owner:repo:prNumber:)``).
+    ///
+    /// - Parameters:
+    ///   - owner: The repository owner (user or organisation) on GitHub.
+    ///   - repo: The repository name.
+    ///   - prNumber: The pull-request number.
+    /// - Returns: An array of ``PRConversationComment`` values, oldest first.
+    ///   Returns an empty array when the PR has no conversation comments.
+    /// - Throws: ``GitHubCommandError`` when the command fails or the output
+    ///   cannot be parsed.
+    public func fetchConversationComments(
+        owner: String,
+        repo: String,
+        prNumber: Int
+    ) async throws -> [PRConversationComment] {
+        let json = try await commandRunner.run([
+            "api", "repos/\(owner)/\(repo)/issues/\(prNumber)/comments",
+            "--paginate",
+        ])
+        return try parseConversationComments(from: json)
+    }
+
+    // MARK: - Authenticated user
+
+    /// The login of the currently authenticated `gh` user, cached after the first
+    /// successful lookup.
+    private var cachedLogin: String?
+
+    /// Resolves (and caches) the login of the authenticated `gh` user.
+    ///
+    /// Shells out to:
+    /// ```
+    /// gh api user --jq .login
+    /// ```
+    /// The result is cached for the lifetime of the poller because the
+    /// authenticated identity does not change while the app runs. This login is
+    /// the loop-prevention key: the conversation-comment reactor skips any comment
+    /// authored by it, so the shepherd never reacts to its own replies.
+    ///
+    /// - Returns: The authenticated user's login.
+    /// - Throws: ``GitHubCommandError`` when the command fails.
+    public func currentUserLogin() async throws -> String {
+        if let cachedLogin { return cachedLogin }
+        let output = try await commandRunner.run(["api", "user", "--jq", ".login"])
+        let login = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        cachedLogin = login
+        return login
     }
 
     // MARK: - Review threads
@@ -162,6 +223,44 @@ public actor GitHubPoller {
             "api", "graphql",
             "-f", "query=\(mutation)",
             "-f", "threadId=\(threadID)",
+        ])
+    }
+
+    // MARK: - Conversation-comment writes
+
+    /// Posts a reply as a top-level conversation comment on a pull request.
+    ///
+    /// Shells out to:
+    /// ```
+    /// gh pr comment <prNumber> --repo <owner>/<repo> --body-file -
+    /// ```
+    /// The body is delivered on stdin (via `--body-file -`) rather than as an
+    /// argument so reply text containing quotes, backticks, or shell
+    /// metacharacters cannot break the invocation.
+    ///
+    /// > Important: The reactor must route this through the autonomy gate *and*
+    /// > only ever post replies authored by the shepherd itself. Because the
+    /// > shepherd's own login authors this comment, the reactor's
+    /// > ``currentUserLogin``-based filter then skips it on the next poll — that
+    /// > filter is what prevents the shepherd from replying to its own replies in
+    /// > an infinite loop.
+    ///
+    /// - Parameters:
+    ///   - owner: The repository owner.
+    ///   - repo: The repository name.
+    ///   - prNumber: The pull-request number.
+    ///   - body: The markdown body of the comment.
+    /// - Throws: ``GitHubCommandError`` when the command fails.
+    public func postConversationComment(
+        owner: String,
+        repo: String,
+        prNumber: Int,
+        body: String
+    ) async throws {
+        _ = try await commandRunner.run([
+            "pr", "comment", "\(prNumber)",
+            "--repo", "\(owner)/\(repo)",
+            "--body", body,
         ])
     }
 
