@@ -147,10 +147,9 @@ public actor ReviewThreadReactor {
     /// user — the latter covering both the user's own thread and an
     /// already-answered thread).
     private static func isActionable(_ thread: ReviewThread, policy: ShepherdAuthorPolicy) -> Bool {
-        // NOTE (commit 1 of 2): the author skip rules are intentionally not yet
-        // applied here, so the new author/bot/already-answered tests fail (red).
-        // Commit 2 applies `policy.isActionableAuthor(last.author)`.
-        _ = policy
-        return !thread.isResolved && !thread.isOutdated && !thread.comments.isEmpty
+        guard !thread.isResolved, !thread.isOutdated, let last = thread.comments.last else {
+            return false
+        }
+        return policy.isActionableAuthor(last.author)
     }
 }

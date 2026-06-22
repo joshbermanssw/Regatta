@@ -175,12 +175,9 @@ public actor ConversationCommentReactor {
         lastSelfReplyIndex: Int?
     ) -> Bool {
         guard !comment.body.isEmpty else { return false }
-        // NOTE (commit 1 of 2): only the self-author guard is applied here; the
-        // bot-author and already-answered rules are intentionally not yet applied,
-        // so the new tests fail (red). Commit 2 applies the full policy.
-        _ = lastSelfReplyIndex
-        _ = index
-        if policy.isSelf(comment.author) { return false }
+        guard policy.isActionableAuthor(comment.author) else { return false }
+        // Already answered: the user replied at a later timeline position.
+        if let lastSelfReplyIndex, index <= lastSelfReplyIndex { return false }
         return true
     }
 }

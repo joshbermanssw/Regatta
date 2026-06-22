@@ -43,6 +43,12 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
     /// The agent provider every spawned worker is launched with.
     private let provider: any AgentProvider
 
+    /// Surfaces a clear, user-facing report when a PR has no known local
+    /// checkout, so the failure is a visible toast rather than a silent no-op or
+    /// the cryptic "target directory is not a git repository" error. Defaults to
+    /// a no-op so tests stay quiet; the composition root wires it to a toast.
+    private let onMissingRepository: @Sendable (PullRequestRef) async -> Void
+
     /// Creates a spawner.
     ///
     /// - Parameters:
@@ -55,27 +61,37 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
     ///   - diffProbe: The worktree change-detection seam. Defaults to
     ///     ``RegattaGitDiffProbe``.
     ///   - provider: The agent provider. Defaults to ``ClaudeCodeProvider``.
+    ///   - onMissingRepository: Reports a PR with no known checkout to the user.
+    ///     Defaults to a no-op.
     init(
         orchestrator: RegattaOrchestrator,
         repoURLResolver: @escaping @Sendable (PullRequestRef) async -> URL? = { _ in nil },
         diffProbe: any RegattaDiffProbing = RegattaGitDiffProbe(),
-        provider: any AgentProvider = ClaudeCodeProvider()
+        provider: any AgentProvider = ClaudeCodeProvider(),
+        onMissingRepository: @escaping @Sendable (PullRequestRef) async -> Void = { _ in }
     ) {
         self.orchestrator = orchestrator
         self.repoURLResolver = repoURLResolver
         self.diffProbe = diffProbe
         self.provider = provider
+        self.onMissingRepository = onMissingRepository
     }
 
     // MARK: - WorkerSpawning
 
     func spawn(_ spec: CIFixWorkerSpec) async -> any CIFixWorkerHandle {
-        OrchestratorCIFixWorkerHandle(
+        let repoURL = await repoURLResolver(spec.pullRequest)
+        if repoURL == nil {
+            // No local checkout: surface it now so the user sees why the ci-fix
+            // loop produces no work, instead of a silent or cryptic failure.
+            await onMissingRepository(spec.pullRequest)
+        }
+        return OrchestratorCIFixWorkerHandle(
             id: spec.id,
             pullRequest: spec.pullRequest,
             branch: spec.branch,
             orchestrator: orchestrator,
-            repoURL: await repoURLResolver(spec.pullRequest),
+            repoURL: repoURL,
             diffProbe: diffProbe,
             provider: provider
         )
@@ -83,8 +99,10 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
 
     func spawnWorker(for request: ReviewThreadWorkRequest) async throws -> ReviewThreadWorkResult {
         guard let repoURL = await repoURLResolver(request.pullRequest) else {
-            // No local checkout to run against; report "nothing done" so the
-            // reactor leaves the thread open for a later retry.
+            // No local checkout to run against; surface a clear toast and report
+            // "nothing done" so the reactor leaves the thread open for a retry —
+            // never run the agent in the launched app's `/` working directory.
+            await onMissingRepository(request.pullRequest)
             return ReviewThreadWorkResult(pushedCodeChange: false, replyBody: nil, shouldResolve: false)
         }
 
@@ -121,8 +139,9 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
 
     func spawnWorker(for request: ConversationCommentWorkRequest) async throws -> ConversationCommentWorkResult {
         guard let repoURL = await repoURLResolver(request.pullRequest) else {
-            // No local checkout to run against; report "nothing done" so the
-            // reactor leaves the comment open for a later retry.
+            // No local checkout to run against; surface a clear toast and report
+            // "nothing done" so the reactor leaves the comment open for a retry.
+            await onMissingRepository(request.pullRequest)
             return ConversationCommentWorkResult(pushedCodeChange: false, replyBody: nil)
         }
 

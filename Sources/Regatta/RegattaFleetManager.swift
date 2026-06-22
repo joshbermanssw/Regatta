@@ -90,7 +90,22 @@ final class RegattaFleetManager {
         let directories = fleet.repositoryDirectories
         let spawner = OrchestratorWorkerSpawner(
             orchestrator: orchestrator,
-            repoURLResolver: { ref in await directories.directory(for: ref) }
+            repoURLResolver: { ref in await directories.directory(for: ref) },
+            onMissingRepository: { ref in
+                await RegattaToastCenter.shared.error(
+                    String(
+                        localized: "regatta.spawn.noCheckout.title",
+                        defaultValue: "No local checkout for this PR"
+                    ),
+                    String.localizedStringWithFormat(
+                        String(
+                            localized: "regatta.spawn.noCheckout.message",
+                            defaultValue: "Re-hand PR #%lld off from its workspace so Regatta knows where to run."
+                        ),
+                        ref.number
+                    )
+                )
+            }
         )
         self.workerSpawner = spawner
 

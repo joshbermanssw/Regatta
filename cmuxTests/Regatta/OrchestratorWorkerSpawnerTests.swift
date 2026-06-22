@@ -195,6 +195,32 @@ struct OrchestratorWorkerSpawnerTests {
         #expect(result.shouldResolve == false)
     }
 
+    /// A PR with no recorded checkout reports a clear, user-facing message
+    /// (wired to a toast in production) rather than failing silently or in `/`.
+    @Test("a PR with no recorded repo dir reports a clear missing-checkout message")
+    func unknownRepoDirReportsToMissingHandler() async throws {
+        let base = makeBaseDir()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let orchestrator = makeOrchestrator(base: base)
+
+        let reported = MissingRepoRecorder()
+        let spawner = OrchestratorWorkerSpawner(
+            orchestrator: orchestrator,
+            repoURLResolver: { _ in nil },
+            diffProbe: TestDiffProbe(result: true),
+            onMissingRepository: { pr in await reported.record(pr) }
+        )
+        let thread = ReviewThread(
+            id: "T1", isResolved: false, isOutdated: false, path: "Sources/A.swift",
+            comments: [ReviewComment(id: "c1", body: "please fix", author: "rev", url: "https://x")]
+        )
+        _ = try await spawner.spawnWorker(
+            for: ReviewThreadWorkRequest(pullRequest: ref(5), thread: thread)
+        )
+
+        #expect(await reported.refs == [ref(5)])
+    }
+
     // MARK: - Reactor end-to-end (Seam A + the real CIFixReactor + a stub gate)
 
     @Test("CIFixReactor runs the real spawner to a green outcome when checks pass")
@@ -285,6 +311,14 @@ private actor TestEchoPaneBridge: PaneBridge {
 private struct TestDiffProbe: RegattaDiffProbing {
     let result: Bool
     func hasUncommittedChanges(at worktreePath: URL) async throws -> Bool { result }
+}
+
+/// Records every PR the spawner reports as having no local checkout, so a test
+/// asserts the user-facing missing-checkout report fires (wired to a toast in
+/// production) instead of a silent or `/`-rooted failure.
+private actor MissingRepoRecorder {
+    private(set) var refs: [PullRequestRef] = []
+    func record(_ ref: PullRequestRef) { refs.append(ref) }
 }
 
 /// A ``PullRequestPolling`` that always reports a single green check, so the
