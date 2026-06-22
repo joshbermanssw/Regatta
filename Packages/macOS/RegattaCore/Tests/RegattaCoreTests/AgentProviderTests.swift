@@ -38,7 +38,9 @@ struct AgentProviderTests {
 
         let launch = provider.makeLaunch(prompt: "fix the bug")
         #expect(launch.executableURL == URL(fileURLWithPath: "/usr/bin/env"))
-        #expect(launch.arguments == ["claude", "-p"])
+        // Includes hook/MCP isolation so workers don't inherit the user's global
+        // ~/.claude hooks (the same isolation the Brain uses).
+        #expect(launch.arguments == ["claude", "-p", "--strict-mcp-config", "--settings", "{\"disableAllHooks\":true}"])
         // The orchestrator appends the prompt as the trailing argument.
         #expect(launch.appendPrompt == true)
     }
@@ -102,6 +104,6 @@ struct AgentProviderTests {
             repoURL: URL(fileURLWithPath: "/tmp/repo")
         )
         #expect(spec.providerID == .claudeCode)
-        #expect(spec.agentLaunch.arguments == ["claude", "-p"])
+        #expect(spec.agentLaunch.arguments == ["claude", "-p", "--strict-mcp-config", "--settings", "{\"disableAllHooks\":true}"])
     }
 }
