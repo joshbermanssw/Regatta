@@ -200,4 +200,107 @@ struct CIFixReactorTests {
         let published = await iterator.next()
         #expect(published == .greenSuccess)
     }
+
+    // MARK: - Cancel stops the loop (regression for the runaway respawn)
+
+    @Test("a cancelled worker stops the loop without spawning another iteration")
+    func cancelledWorkerStopsLoop() async {
+        // The worker reports cancelled on its FIRST attempt (the user hit ✕ / the
+        // process was SIGKILLed mid-iteration). Without the fix, the loop treated a
+        // cancel like "ran, no fix" and either advanced or only stopped as
+        // needs-attention. It must instead stop as `.cancelled`.
+        let spawner = StubWorkerSpawner(ciFixOutcomes: [.cancelled])
+        let gate = StubOutwardActionGate(verdict: .allowed)
+        // CI stays red so nothing else would stop the loop.
+        let poller = SequencedPullRequestPoller([.checks(failing())])
+        let reactor = makeReactor(spawner: spawner, gate: gate, poller: poller, maxIterations: 5)
+
+        let outcome = await reactor.runFixLoop(for: pr)
+
+        #expect(outcome == .cancelled)
+        // The single spawned worker was attempted exactly once — no respawn.
+        #expect(spawner.spawnCount == 1)
+        #expect(spawner.lastHandle?.attemptCount == 1)
+        // A cancel is not a give-up: the PR is NOT flagged needs-attention.
+        #expect(await reactor.isNeedingAttention(pr) == false)
+        // Nothing was pushed for a cancelled attempt.
+        #expect(gate.requestCount == 0)
+    }
+
+    @Test("a worker cancelled after producing one fix still stops, no extra spawn")
+    func cancelAfterProgressStopsLoop() async {
+        // Iteration 0 produces a fix (pushed), CI re-poll is still red so the loop
+        // would normally continue; iteration 1's worker is cancelled. The loop must
+        // stop as `.cancelled`, not advance to a third iteration.
+        let spawner = StubWorkerSpawner(ciFixOutcomes: [.produced, .cancelled])
+        let gate = StubOutwardActionGate(verdict: .allowed)
+        let poller = SequencedPullRequestPoller([.checks(failing())])
+        let reactor = makeReactor(spawner: spawner, gate: gate, poller: poller, maxIterations: 5)
+
+        let outcome = await reactor.runFixLoop(for: pr)
+
+        #expect(outcome == .cancelled)
+        // One ci-fix worker handle, attempted exactly twice (produced, cancelled).
+        #expect(spawner.spawnCount == 1)
+        #expect(spawner.lastHandle?.attemptCount == 2)
+        // Pushed exactly once (for the single produced iteration), then stopped.
+        #expect(gate.requestCount == 1)
+        #expect(await reactor.isNeedingAttention(pr) == false)
+    }
+
+    @Test("cancel(for:) before the loop starts stops it immediately, no attempt")
+    func cancelBeforeIterationStopsLoop() async {
+        // A dismiss cascade calls cancel(for:) before the loop's first iteration:
+        // the per-iteration guard stops it before any worker attempt runs.
+        let spawner = StubWorkerSpawner(producesFix: true)
+        let gate = StubOutwardActionGate(verdict: .allowed)
+        let poller = SequencedPullRequestPoller([.checks(failing())])
+        let reactor = makeReactor(spawner: spawner, gate: gate, poller: poller, maxIterations: 5)
+
+        await reactor.cancel(for: pr)
+        let outcome = await reactor.runFixLoop(for: pr)
+
+        #expect(outcome == .cancelled)
+        // Stopped before attempting any fix or pushing.
+        #expect(spawner.lastHandle?.attemptCount == 0)
+        #expect(gate.requestCount == 0)
+    }
+
+    @Test("cancel is idempotent and final: a cancelled loop reports cancelled once")
+    func cancelIsIdempotent() async {
+        let spawner = StubWorkerSpawner(ciFixOutcomes: [.cancelled])
+        let gate = StubOutwardActionGate(verdict: .allowed)
+        let poller = SequencedPullRequestPoller([.checks(failing())])
+        let reactor = makeReactor(spawner: spawner, gate: gate, poller: poller, maxIterations: 5)
+
+        // Pre-cancel, then run: idempotent — still exactly one cancelled outcome.
+        await reactor.cancel(for: pr)
+        let first = await reactor.runFixLoop(for: pr)
+        #expect(first == .cancelled)
+
+        // Cancelling again is harmless.
+        await reactor.cancel(for: pr)
+        await reactor.cancel(for: pr)
+        #expect(await reactor.isNeedingAttention(pr) == false)
+    }
+
+    @Test("ingest of a cancelled loop does not flag needs-attention or re-trigger")
+    func ingestCancelDoesNotFlagOrRespawn() async {
+        let spawner = StubWorkerSpawner(ciFixOutcomes: [.cancelled])
+        let gate = StubOutwardActionGate(verdict: .allowed)
+        let poller = SequencedPullRequestPoller([.checks(failing())])
+        let reactor = makeReactor(spawner: spawner, gate: gate, poller: poller, maxIterations: 5)
+
+        let outcome = await reactor.ingest(failingState())
+        #expect(outcome == .cancelled)
+        #expect(spawner.spawnCount == 1)
+        #expect(await reactor.isNeedingAttention(pr) == false)
+
+        // A second identical failing snapshot must NOT spawn a replacement loop
+        // for the cancelled PR (failing edge was cleared, so it is not a fresh
+        // transition; one cancel = one stop).
+        let second = await reactor.ingest(failingState())
+        #expect(second == nil)
+        #expect(spawner.spawnCount == 1)
+    }
 }

@@ -20,6 +20,15 @@ public struct RegattaLoopOutcome: Equatable, Sendable {
         /// The iteration failed in a way that should stop the loop and mark it
         /// failed (the worker errored, exited non-zero, etc.).
         case failed
+
+        /// The iteration's worker was explicitly cancelled or killed by a signal
+        /// (a user cancel from the Fleet, or a SIGTERM/SIGKILL from cancellation).
+        ///
+        /// This is a **stop**, never a retry: the loop must terminate as
+        /// ``RegattaLoopStopReason/cancelled`` and must NOT start another
+        /// iteration. A user cancel means "stop", so a cancelled iteration can
+        /// never advance the loop the way a ``failed`` or ``progressed`` one might.
+        case cancelled
     }
 
     /// The classification of this iteration.

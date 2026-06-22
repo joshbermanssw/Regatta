@@ -42,6 +42,7 @@ public actor RegattaLoopEngine {
     private var history: [RegattaIterationRecord] = []
     private var totalTokensUsed = 0
     private var manualStopRequested = false
+    private var cancelRequested = false
 
     private var continuations: [UUID: AsyncStream<RegattaLoopState>.Continuation] = [:]
 
@@ -111,6 +112,19 @@ public actor RegattaLoopEngine {
         manualStopRequested = true
     }
 
+    /// Requests that the loop **cancel** — stop now and never start another
+    /// iteration — marking it stopped with ``RegattaLoopStopReason/cancelled``.
+    ///
+    /// Unlike ``requestManualStop()`` (a graceful "finish the current iteration,
+    /// then stop"), a cancel is the user/dismiss "stop" signal: it is checked at
+    /// the top of each turn, so an in-flight iteration still finishes and is
+    /// recorded, but the loop then terminates as cancelled instead of advancing.
+    /// A cancelled iteration outcome (from a killed worker) reaches the same
+    /// terminal state. Idempotent and final: a loop already terminal stays so.
+    public func requestCancel() {
+        cancelRequested = true
+    }
+
     // MARK: - Run
 
     /// Runs the loop to a terminal status and returns the final state.
@@ -135,6 +149,8 @@ public actor RegattaLoopEngine {
         status = .running
 
         while true {
+            // RED COMMIT: cancel-stop intentionally not yet wired so the cancel
+            // regression tests fail; the fix commit restores this guard.
             if manualStopRequested {
                 finish(.stopped(.manualStop))
                 break
@@ -163,6 +179,9 @@ public actor RegattaLoopEngine {
 
             let elapsed = now().timeIntervalSince(started)
             record(outcome, index: index, duration: elapsed)
+
+            // RED COMMIT: cancelled-outcome stop intentionally not yet wired so
+            // the cancel regression tests fail; the fix commit restores this.
 
             // A completed iteration may push us to/over the token budget; that
             // cap is reported even though the worker outcome itself is fine.

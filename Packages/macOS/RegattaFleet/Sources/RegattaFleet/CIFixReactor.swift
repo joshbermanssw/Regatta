@@ -54,6 +54,13 @@ public actor CIFixReactor {
     /// auto-pushing" guarantee.
     private var needsAttention: Set<String> = []
 
+    /// PRs whose in-flight fix loop has been asked to cancel (via ``cancel(for:)``
+    /// — the Fleet ✕ on a loop's worker, or a shepherd-dismiss cascade). The loop
+    /// checks this each iteration and stops as ``CIFixOutcome/cancelled`` without
+    /// spawning another worker. A cancelled PR is also cleared from ``failing`` and
+    /// ``needsAttention`` so a stale red snapshot cannot immediately respawn it.
+    private var cancelled: Set<String> = []
+
     private var continuations: [UUID: AsyncStream<CIFixOutcome>.Continuation] = [:]
 
     /// Creates a reactor with an explicit loop-condition factory.
@@ -124,8 +131,11 @@ public actor CIFixReactor {
         let isFailingNow = state.checks.anyFailed
 
         guard isFailingNow else {
-            // Re-arm: a non-failing snapshot lets a future failure trigger again.
+            // Re-arm: a non-failing snapshot lets a future failure trigger again,
+            // including after a cancel — one cancel = one stop, but a later
+            // green→red transition is a genuinely new situation.
             failing.remove(id)
+            cancelled.remove(id)
             return nil
         }
 
@@ -135,19 +145,30 @@ public actor CIFixReactor {
         // until the human clears the flag (issue #35).
         let wasFailing = failing.contains(id)
         failing.insert(id)
-        // A PR flagged needs-attention has stopped auto-pushing: it will not spawn
-        // another fix loop for a repeat failure until the human clears the flag
-        // (issue #35 — "CI never green → stop auto-pushing"). The transition and
+        // Suppress auto-spawn while a PR is flagged needs-attention (issue #35) or
+        // has been cancelled (one cancel = one stop): no new fix loop spawns for a
+        // repeat red snapshot until a green snapshot re-arms it. The transition and
         // in-flight guards still apply.
-        guard !wasFailing, !inFlight.contains(id), !needsAttention.contains(id) else { return nil }
+        guard !wasFailing,
+              !inFlight.contains(id),
+              !needsAttention.contains(id),
+              !cancelled.contains(id) else { return nil }
 
         inFlight.insert(id)
         defer { inFlight.remove(id) }
         let outcome = await runFixLoop(for: state.pullRequest)
-        // A loop that gives up (cap reached or push blocked) flags the PR so the
-        // reactor stops auto-pushing until the human resolves it.
-        if case .needsAttention = outcome {
+        switch outcome {
+        case .needsAttention:
+            // A loop that gives up (cap reached or push blocked) flags the PR so
+            // the reactor stops auto-pushing until the human resolves it.
             needsAttention.insert(id)
+        case .cancelled:
+            // A user cancel / dismiss is a final stop, not a give-up: do NOT flag
+            // needs-attention. Mark the PR cancelled so a stale red snapshot does
+            // not immediately respawn; a green→red transition re-arms it.
+            cancelled.insert(id)
+        case .greenSuccess:
+            break
         }
         publish(outcome)
         return outcome
@@ -165,19 +186,45 @@ public actor CIFixReactor {
         needsAttention.remove(pullRequest.id)
     }
 
+    /// Cancels the in-flight fix loop for a PR — a final, idempotent stop.
+    ///
+    /// This is the reactor's half of the user-cancel / shepherd-dismiss contract:
+    /// - The Fleet ✕ on a loop's worker cancels that worker *and* calls this so
+    ///   the loop does not spawn a replacement (the "cancel respawns" bug).
+    /// - A shepherd dismiss cascades here so the orphaned loop stops polling and
+    ///   spawning (the "dismiss leaves loops running" bug).
+    ///
+    /// It sets a per-PR cancel flag the loop checks each iteration. The PR stays
+    /// marked cancelled (suppressing auto re-spawn on a stale red snapshot) until a
+    /// green snapshot re-arms it — "one cancel = one stop". Idempotent: cancelling
+    /// a PR with no in-flight loop just records the flag (harmless).
+    public func cancel(for pullRequest: PullRequestRef) {
+        let id = pullRequest.id
+        cancelled.insert(id)
+        // A cancel is a final stop, not a give-up, so it clears any needs-attention
+        // flag; it deliberately keeps `failing` set so a repeat red snapshot is not
+        // seen as a fresh transition that would respawn a loop.
+        needsAttention.remove(id)
+    }
+
     /// Drives the spawn + fix loop for one PR and returns its outcome.
     ///
     /// Exposed so tests can run a loop directly without simulating a snapshot
     /// stream. Honours neither the transition guard nor the in-flight guard —
     /// those belong to ``ingest(_:)``.
     public func runFixLoop(for pullRequest: PullRequestRef) async -> CIFixOutcome {
+        let id = pullRequest.id
         let spec = CIFixWorkerSpec(pullRequest: pullRequest, branch: pullRequest.repo)
         let worker = await spawner.spawn(spec)
         let condition = makeCondition(pullRequest)
 
         var iteration = 0
         while true {
-            let producedFix = await worker.attemptFix()
+            // RED COMMIT: cancel-stop intentionally not yet wired so the cancel
+            // regression tests fail; the fix commit restores these guards.
+            let attempt = await worker.attemptFix()
+
+            let producedFix = attempt == .produced
             if producedFix {
                 // The worker committed locally (it is prompted to commit, not push).
                 // Route the *push* of those commits through the autonomy gate so a

@@ -255,6 +255,8 @@ public struct RegattaLoopView: View {
                 return String(localized: "regatta.loop.status.done", defaultValue: "Done")
             case .manualStop:
                 return String(localized: "regatta.loop.status.stopped", defaultValue: "Stopped")
+            case .cancelled:
+                return String(localized: "regatta.loop.status.cancelled", defaultValue: "Cancelled")
             case .maxIterationsCap:
                 return String(localized: "regatta.loop.status.maxIterationsCap", defaultValue: "Max iterations cap")
             case .tokenBudgetCap:

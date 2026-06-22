@@ -79,7 +79,7 @@ struct OrchestratorWorkerSpawnerTests {
 
     // MARK: - Seam A: CIFix handle
 
-    @Test("CIFix handle attemptFix resolves true when the agent leaves changes")
+    @Test("CIFix handle attemptFix resolves produced when the agent leaves changes")
     func attemptFixDetectsChanges() async throws {
         let repo = try makeFixtureRepo()
         let base = makeBaseDir()
@@ -96,10 +96,10 @@ struct OrchestratorWorkerSpawnerTests {
         )
         let handle = await spawner.spawn(CIFixWorkerSpec(pullRequest: ref(), branch: "main"))
         let produced = await handle.attemptFix()
-        #expect(produced == true)
+        #expect(produced == .produced)
     }
 
-    @Test("CIFix handle attemptFix resolves false when the agent leaves no changes")
+    @Test("CIFix handle attemptFix resolves noFix when the agent leaves no changes")
     func attemptFixDetectsNoChanges() async throws {
         let repo = try makeFixtureRepo()
         let base = makeBaseDir()
@@ -116,7 +116,7 @@ struct OrchestratorWorkerSpawnerTests {
         )
         let handle = await spawner.spawn(CIFixWorkerSpec(pullRequest: ref(), branch: "main"))
         let produced = await handle.attemptFix()
-        #expect(produced == false)
+        #expect(produced == .noFix)
     }
 
     // MARK: - Seam A: review-thread spawn
@@ -463,6 +463,27 @@ struct OrchestratorWorkerSpawnerTests {
         let finalState = await engine.run()
         #expect(finalState.status.isTerminal)
         #expect(!finalState.history.isEmpty)
+    }
+
+    // MARK: - Cancellation classification (kill-signal → stop, not retry)
+
+    @Test("a SIGKILL/SIGTERM worker exit is classified as a termination-signal kill")
+    func killSignalExitClassified() {
+        // The dogfooded runaway: a SIGKILLed worker (exit 9) must read as a kill so
+        // both loops treat it as a cancel-stop, not a retry-able failure.
+        #expect(RegattaCancellationExit.isTerminationSignalFailure("agent exited with code 9"))   // SIGKILL
+        #expect(RegattaCancellationExit.isTerminationSignalFailure("agent exited with code 15"))  // SIGTERM
+        #expect(RegattaCancellationExit.isTerminationSignalFailure("agent exited with code 137")) // 128+9
+        #expect(RegattaCancellationExit.isTerminationSignalFailure("agent exited with code 143")) // 128+15
+        #expect(RegattaCancellationExit.isTerminationSignalFailure("agent exited with code -9"))  // killed by 9
+    }
+
+    @Test("an ordinary non-zero exit is NOT a termination-signal kill")
+    func ordinaryExitNotClassifiedAsKill() {
+        // A self-inflicted non-zero exit is a real failed iteration, not a cancel.
+        #expect(!RegattaCancellationExit.isTerminationSignalFailure("agent exited with code 1"))
+        #expect(!RegattaCancellationExit.isTerminationSignalFailure("agent exited with code 127"))
+        #expect(!RegattaCancellationExit.isTerminationSignalFailure("agent exited with code unknown"))
     }
 }
 

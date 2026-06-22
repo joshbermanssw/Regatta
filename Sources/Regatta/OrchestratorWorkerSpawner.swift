@@ -68,6 +68,11 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
     /// Optional so review/conversation paths and tests can omit it.
     private let ciFixWorktreeStore: CIFixWorktreeStore?
 
+    /// Tracks which workers each shepherd (PR) currently owns, so a shepherd
+    /// dismiss can cascade-cancel them. Every spawn path records its worker here
+    /// while it runs and clears it on termination. Optional so tests can omit it.
+    private let workerRegistry: ShepherdWorkerRegistry?
+
     /// Creates a spawner.
     ///
     /// - Parameters:
@@ -95,7 +100,8 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
         resolveExecutable: @escaping WorkerAgentExecutableResolving = WorkerAgentExecutableResolution.defaultResolver(),
         onMissingRepository: @escaping @Sendable (PullRequestRef) async -> Void = { _ in },
         onUnresolvableAgent: @escaping @Sendable (any Error) async -> Void = { _ in },
-        ciFixWorktreeStore: CIFixWorktreeStore? = nil
+        ciFixWorktreeStore: CIFixWorktreeStore? = nil,
+        workerRegistry: ShepherdWorkerRegistry? = nil
     ) {
         self.orchestrator = orchestrator
         self.repoURLResolver = repoURLResolver
@@ -105,6 +111,7 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
         self.onMissingRepository = onMissingRepository
         self.onUnresolvableAgent = onUnresolvableAgent
         self.ciFixWorktreeStore = ciFixWorktreeStore
+        self.workerRegistry = workerRegistry
     }
 
     // MARK: - WorkerSpawning
@@ -126,7 +133,8 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
             provider: provider,
             resolveExecutable: resolveExecutable,
             onUnresolvableAgent: onUnresolvableAgent,
-            worktreeStore: ciFixWorktreeStore
+            worktreeStore: ciFixWorktreeStore,
+            workerRegistry: workerRegistry
         )
     }
 
@@ -149,8 +157,7 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
             // open for a retry rather than spawning a worker that exits 127.
             return ReviewThreadWorkResult(pushedCodeChange: false, replyBody: nil, shouldResolve: false)
         }
-        let id = await orchestrator.spawnWorker(workerSpec)
-        let terminal = await orchestrator.awaitTerminal(id)
+        let (id, terminal) = await runRegistered(workerSpec, for: request.pullRequest)
 
         guard terminal?.status == .done else {
             // Crash / block / cancel: not handled, retry next poll.
@@ -191,8 +198,7 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
             // open for a retry rather than spawning a worker that exits 127.
             return ConversationCommentWorkResult(pushedCodeChange: false, replyBody: nil)
         }
-        let id = await orchestrator.spawnWorker(workerSpec)
-        let terminal = await orchestrator.awaitTerminal(id)
+        let (id, terminal) = await runRegistered(workerSpec, for: request.pullRequest)
 
         guard terminal?.status == .done else {
             // Crash / block / cancel: not handled, retry next poll.
@@ -238,8 +244,7 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
             // open for a retry rather than spawning a worker that exits 127.
             return ReviewSummaryWorkResult(pushedCodeChange: false, replyBody: nil)
         }
-        let id = await orchestrator.spawnWorker(workerSpec)
-        let terminal = await orchestrator.awaitTerminal(id)
+        let (id, terminal) = await runRegistered(workerSpec, for: request.pullRequest)
 
         guard terminal?.status == .done else {
             // Crash / block / cancel: not handled, retry next poll.
@@ -345,6 +350,22 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
         }
     }
 
+    /// Spawns a worker for `spec`, registers it under `pullRequest` so a shepherd
+    /// dismiss can cascade-cancel it, awaits its terminal status, and clears the
+    /// ownership record. Returns `(id, terminal)` so the caller can inspect the
+    /// worktree on `.done`. Shared by the review-thread / conversation-comment /
+    /// review-summary spawn paths so all three honor the dismiss cascade.
+    private func runRegistered(
+        _ spec: WorkerSpec,
+        for pullRequest: PullRequestRef
+    ) async -> (id: UUID, terminal: Worker?) {
+        let id = await orchestrator.spawnWorker(spec)
+        await workerRegistry?.record(id, for: pullRequest)
+        let terminal = await orchestrator.awaitTerminal(id)
+        await workerRegistry?.clear(id, for: pullRequest)
+        return (id, terminal)
+    }
+
     /// Whether the worker produced work worth pushing — new local commits or
     /// uncommitted changes in its worktree.
     ///
@@ -433,6 +454,9 @@ struct OrchestratorCIFixWorkerHandle: CIFixWorkerHandle {
     /// Records the worktree this worker committed into so the gate-routed push
     /// (``GitPushActionExecutor``) targets exactly those commits.
     private let worktreeStore: CIFixWorktreeStore?
+    /// Tracks each iteration's worker under the PR so a shepherd dismiss can
+    /// cascade-cancel the running ci-fix worker.
+    private let workerRegistry: ShepherdWorkerRegistry?
 
     init(
         id: String,
@@ -444,7 +468,8 @@ struct OrchestratorCIFixWorkerHandle: CIFixWorkerHandle {
         provider: any AgentProvider,
         resolveExecutable: @escaping WorkerAgentExecutableResolving = WorkerAgentExecutableResolution.defaultResolver(),
         onUnresolvableAgent: @escaping @Sendable (any Error) async -> Void = { _ in },
-        worktreeStore: CIFixWorktreeStore? = nil
+        worktreeStore: CIFixWorktreeStore? = nil,
+        workerRegistry: ShepherdWorkerRegistry? = nil
     ) {
         self.id = id
         self.pullRequest = pullRequest
@@ -456,10 +481,11 @@ struct OrchestratorCIFixWorkerHandle: CIFixWorkerHandle {
         self.resolveExecutable = resolveExecutable
         self.onUnresolvableAgent = onUnresolvableAgent
         self.worktreeStore = worktreeStore
+        self.workerRegistry = workerRegistry
     }
 
-    func attemptFix() async -> Bool {
-        guard let repoURL else { return false }
+    func attemptFix() async -> CIFixAttemptOutcome {
+        guard let repoURL else { return .noFix }
         let prompt = """
         CI is failing on PR \(pullRequest.repoSlug)#\(pullRequest.number) \
         (branch \(branch)). Make CI green: diagnose the failing checks, fix them, \
@@ -477,7 +503,7 @@ struct OrchestratorCIFixWorkerHandle: CIFixWorkerHandle {
             // Agent CLI unresolvable: surface a clear toast and report "no fix"
             // rather than spawning a worker that exits 127.
             await onUnresolvableAgent(error)
-            return false
+            return .noFix
         }
         let spec = WorkerSpec(
             name: "ci-fix \(pullRequest.repoSlug)#\(pullRequest.number)",
@@ -487,20 +513,99 @@ struct OrchestratorCIFixWorkerHandle: CIFixWorkerHandle {
             providerID: provider.id
         )
         let workerID = await orchestrator.spawnWorker(spec)
+        // Record the live worker so a Fleet ✕ / dismiss cascade can cancel exactly
+        // this PR's running ci-fix worker (shepherd→worker ownership).
+        await workerRegistry?.record(workerID, for: pullRequest)
         let terminal = await orchestrator.awaitTerminal(workerID)
-        guard terminal?.status == .done else { return false }
-        guard let worktree = await orchestrator.worktree(for: workerID) else { return false }
-        // "Produced a fix" = new local commits OR uncommitted changes. The worker
-        // is prompted to commit (not push) so a clean-but-committed worktree is the
-        // common success case; probing only for uncommitted changes would miss it
-        // and report a false "no fix", respawning the loop forever.
-        let produced = (try? await diffProbe.hasProducedWork(at: worktree.path)) ?? false
-        if produced {
-            // Record the worktree so the gate-routed push targets exactly these
-            // commits. Regatta — not the agent — performs the push, preserving the
-            // staged-approval autonomy gate.
-            await worktreeStore?.record(worktree.path, for: pullRequest)
+        await workerRegistry?.clear(workerID, for: pullRequest)
+
+        switch terminal?.status {
+        case .cancelled:
+            // User ✕ (Fleet) or a shepherd-dismiss cascade marked the worker
+            // cancelled. A cancel is a final STOP, never "ran, no fix → advance":
+            // report `.cancelled` so the loop terminates instead of respawning.
+            return .cancelled
+        case .failed(let reason) where RegattaCancellationExit.isTerminationSignalFailure(reason):
+            // A worker killed by a termination signal (SIGTERM/SIGKILL, exit 9/15
+            // etc.) is a cancellation, not a self-inflicted failure that should
+            // advance the loop — the SIGKILL-respawn the user dogfooded.
+            return .cancelled
+        case .done:
+            guard let worktree = await orchestrator.worktree(for: workerID) else { return .noFix }
+            // "Produced a fix" = new local commits OR uncommitted changes. The
+            // worker is prompted to commit (not push) so a clean-but-committed
+            // worktree is the common success case; probing only for uncommitted
+            // changes would miss it and report a false "no fix", respawning the
+            // loop forever.
+            let produced = (try? await diffProbe.hasProducedWork(at: worktree.path)) ?? false
+            if produced {
+                // Record the worktree so the gate-routed push targets exactly these
+                // commits. Regatta — not the agent — performs the push, preserving
+                // the staged-approval autonomy gate.
+                await worktreeStore?.record(worktree.path, for: pullRequest)
+            }
+            return produced ? .produced : .noFix
+        default:
+            // Any other non-done terminal (failed-on-purpose, blocked) is a
+            // no-fix iteration; the loop's no-progress guard then stops it.
+            return .noFix
         }
-        return produced
+    }
+}
+
+/// Shared classification of whether an orchestrator worker's `.failed` exit
+/// describes a process that was **killed by a termination signal**
+/// (SIGTERM/SIGKILL/SIGINT…) rather than one that chose to exit non-zero.
+///
+/// ## Why this exists
+/// Both loop drivers — the generic ``OrchestratorLoopWorker`` (brain loop) and
+/// the ``OrchestratorCIFixWorkerHandle`` (ci-fix "until green" loop) — spawn one
+/// agent worker per iteration through the ``RegattaOrchestrator``. An explicit
+/// user cancel routes through ``RegattaOrchestrator/cancelWorker(_:)`` and marks
+/// the worker `.cancelled`, which both loops already treat as a final stop. But a
+/// worker whose process is killed by a signal *outside* that path (the runaway the
+/// user dogfooded: "a SIGKILLed worker, exit 9, triggered a respawn") surfaces as
+/// `.failed("agent exited with code 9")`. Treating that as an ordinary failed
+/// iteration let the loop advance and respawn. A signal kill is a cancellation,
+/// not a self-inflicted failure, so it must stop the loop.
+///
+/// The orchestrator formats a worker's terminal failure as
+/// `"agent exited with code <N>"`. The pane bridge reports a signal kill as the
+/// signal number (Foundation's `Process.terminationStatus` is the signal for an
+/// uncaught signal, e.g. 9/15) or, when it force-finishes a terminated pane, as
+/// `SIGTERM` (15). Shells and some toolchains report the same kill as `128 +
+/// signal` (137 = SIGKILL, 143 = SIGTERM) or a negative code. This helper treats
+/// all of those as a termination-signal kill.
+enum RegattaCancellationExit {
+
+    /// The bare signal numbers that mean "the run was killed", not "it exited
+    /// non-zero on purpose": SIGHUP, SIGINT, SIGQUIT, SIGKILL, SIGTERM.
+    private static let killSignals: Set<Int> = [1, 2, 3, 9, 15]
+
+    /// Whether `reason` (a worker `.failed` reason string) describes a process
+    /// killed by a termination signal, which a loop must treat as a cancel-stop.
+    static func isTerminationSignalFailure(_ reason: String) -> Bool {
+        guard let code = exitCode(from: reason) else { return false }
+        return isTerminationSignal(code)
+    }
+
+    /// Whether a raw process exit/termination code denotes a kill signal.
+    static func isTerminationSignal(_ code: Int) -> Bool {
+        // A negative code is the conventional "killed by signal -code".
+        if code < 0 { return isTerminationSignal(-code) }
+        // Bare signal number (Foundation reports the signal directly).
+        if killSignals.contains(code) { return true }
+        // Shell convention: 128 + signal.
+        if code > 128, killSignals.contains(code - 128) { return true }
+        return false
+    }
+
+    /// Extracts the trailing integer exit code from an
+    /// `"agent exited with code <N>"`-style reason, or `nil` if there is none
+    /// (e.g. the "unknown" placeholder for a missing code).
+    private static func exitCode(from reason: String) -> Int? {
+        let trailing = reason.reversed().prefix { $0.isNumber || $0 == "-" }
+        let token = String(trailing.reversed())
+        return Int(token)
     }
 }

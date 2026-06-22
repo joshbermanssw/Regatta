@@ -300,6 +300,112 @@ import Foundation
         #expect(final.status == .stopped(.iterationCountMet))
         #expect(statuses.last == .stopped(.iterationCountMet), "stream's last snapshot should be terminal; got \(String(describing: statuses.last))")
     }
+
+    // MARK: - Cancel stops the loop (regression for the runaway respawn)
+
+    /// A worker whose iteration outcome is `.cancelled` (a user ✕ / killed worker)
+    /// stops the loop as `.cancelled` and does NOT advance to another iteration,
+    /// even when the stop condition would otherwise continue. This is the engine
+    /// half of the "cancel stops the loop, never respawns" fix.
+    @Test func cancelledIterationStopsLoopWithoutAdvancing() async {
+        let attempts = CountActor()
+        let engine = RegattaLoopEngine(
+            configuration: RegattaLoopConfiguration(
+                goal: "should stop on cancel, not advance",
+                // A 10-iteration loop would normally keep going.
+                stopCondition: .iterations(10),
+                safetyCaps: RegattaLoopSafetyCaps(maxIterations: 10)
+            ),
+            worker: RegattaClosureLoopWorker { _, _ in
+                await attempts.increment()
+                // The very first iteration is cancelled (worker killed mid-run).
+                return RegattaLoopOutcome(kind: .cancelled, summary: "killed", tokensUsed: 0)
+            }
+        )
+
+        let final = await engine.run()
+
+        #expect(final.status == .stopped(.cancelled), "got \(final.status)")
+        // Exactly one iteration ran — the loop did not spawn a replacement.
+        #expect(await attempts.count == 1)
+        #expect(final.completedIterations == 1)
+    }
+
+    /// `requestCancel()` before the loop starts stops it immediately as
+    /// `.cancelled` without running any iteration (the dismiss-cascade contract).
+    @Test func requestCancelBeforeRunStopsImmediately() async {
+        let attempts = CountActor()
+        let engine = RegattaLoopEngine(
+            configuration: RegattaLoopConfiguration(
+                goal: "cancel before any iteration",
+                stopCondition: .iterations(5),
+                safetyCaps: RegattaLoopSafetyCaps(maxIterations: 5)
+            ),
+            worker: RegattaClosureLoopWorker { _, _ in
+                await attempts.increment()
+                return RegattaLoopOutcome(kind: .progressed, summary: "ran", tokensUsed: 0)
+            }
+        )
+
+        await engine.requestCancel()
+        let final = await engine.run()
+
+        #expect(final.status == .stopped(.cancelled), "got \(final.status)")
+        #expect(await attempts.count == 0, "no iteration should run after a pre-cancel")
+    }
+
+    /// `requestCancel()` mid-loop stops it on the next turn as `.cancelled`,
+    /// finishing the in-flight iteration first (so no partial work is lost) but
+    /// never starting another. Deterministic: the first iteration requests the
+    /// cancel itself (via the shared gate), so by the next turn the flag is set —
+    /// no timing race, no cap reliance.
+    @Test func requestCancelMidLoopStopsNextTurn() async {
+        let attempts = CountActor()
+        let gate = CancelGate()
+        let engine = RegattaLoopEngine(
+            configuration: RegattaLoopConfiguration(
+                goal: "cancel mid-loop",
+                stopCondition: .manual,
+                safetyCaps: RegattaLoopSafetyCaps(maxIterations: 100)
+            ),
+            worker: RegattaClosureLoopWorker { index, _ in
+                await attempts.increment()
+                // After the first iteration completes, fire the cancel so the
+                // engine's next top-of-turn check stops the loop deterministically.
+                if index == 0 { await gate.fire() }
+                return RegattaLoopOutcome(kind: .progressed, summary: "ran", tokensUsed: 0)
+            }
+        )
+        await gate.bind(engine)
+
+        let final = await engine.run()
+
+        #expect(final.status == .stopped(.cancelled), "got \(final.status)")
+        // Stopped on the turn after the first iteration: exactly one ran, and the
+        // stop is a cancel (not a safety cap).
+        #expect(await attempts.count == 1)
+        if case .stopped(let reason) = final.status {
+            #expect(reason.isSafetyCap == false)
+        }
+    }
+}
+
+// MARK: - CancelGate
+
+/// Lets a worker closure request the engine's cancel after an iteration, so the
+/// "cancel mid-loop" test is deterministic rather than timing-dependent.
+private actor CancelGate {
+    private var engine: RegattaLoopEngine?
+    func bind(_ engine: RegattaLoopEngine) { self.engine = engine }
+    func fire() async { await engine?.requestCancel() }
+}
+
+// MARK: - CountActor
+
+/// A tiny actor that counts worker invocations across the loop's iterations.
+private actor CountActor {
+    private(set) var count = 0
+    func increment() { count += 1 }
 }
 
 // MARK: - RanFlag

@@ -12,6 +12,7 @@ extension RegattaLoopStopReason: Codable {
         case .goalReached: return "goalReached"
         case .iterationCountMet: return "iterationCountMet"
         case .manualStop: return "manualStop"
+        case .cancelled: return "cancelled"
         case .maxIterationsCap: return "maxIterationsCap"
         case .tokenBudgetCap: return "tokenBudgetCap"
         }
@@ -24,6 +25,7 @@ extension RegattaLoopStopReason: Codable {
         case "goalReached": self = .goalReached
         case "iterationCountMet": self = .iterationCountMet
         case "manualStop": self = .manualStop
+        case "cancelled": self = .cancelled
         case "maxIterationsCap": self = .maxIterationsCap
         case "tokenBudgetCap": self = .tokenBudgetCap
         // Tolerant fallback for unknown/added cases (e.g. #35). A manual stop is

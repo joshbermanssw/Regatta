@@ -18,6 +18,13 @@ public enum RegattaLoopStopReason: Equatable, Sendable {
     /// ``RegattaLoopEngine/requestManualStop()``).
     case manualStop
 
+    /// The loop's current worker was explicitly cancelled or killed — a user
+    /// cancel from the Fleet, a shepherd dismiss cascade, or a SIGTERM/SIGKILL
+    /// from cancellation. This is a final, idempotent stop: the loop does NOT
+    /// start another iteration. Unlike ``manualStop`` (a graceful "finish the
+    /// current iteration, then stop"), a cancellation aborts in place.
+    case cancelled
+
     /// The hard ``RegattaLoopSafetyCaps/maxIterations`` cap was hit.
     case maxIterationsCap
 
@@ -30,7 +37,7 @@ public enum RegattaLoopStopReason: Equatable, Sendable {
         switch self {
         case .maxIterationsCap, .tokenBudgetCap:
             return true
-        case .goalReached, .iterationCountMet, .manualStop:
+        case .goalReached, .iterationCountMet, .manualStop, .cancelled:
             return false
         }
     }

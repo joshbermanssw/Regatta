@@ -17,6 +17,9 @@ final class StubWorkerSpawner: WorkerSpawning, @unchecked Sendable {
     private var _conversationRequests: [ConversationCommentWorkRequest] = []
     private var _reviewRequests: [ReviewSummaryWorkRequest] = []
     private let producesFix: Bool
+    /// When non-nil, each spawned ci-fix handle plays this scripted per-call
+    /// outcome sequence instead of the fixed `producesFix` verdict.
+    private let ciFixOutcomes: [CIFixAttemptOutcome]?
     private let result: ReviewThreadWorkResult
     private let conversationResult: ConversationCommentWorkResult
     private let reviewResult: ReviewSummaryWorkResult
@@ -37,6 +40,7 @@ final class StubWorkerSpawner: WorkerSpawning, @unchecked Sendable {
     ///     throws this instead.
     init(
         producesFix: Bool = true,
+        ciFixOutcomes: [CIFixAttemptOutcome]? = nil,
         result: ReviewThreadWorkResult = .init(pushedCodeChange: true, replyBody: "Addressed.", shouldResolve: true),
         conversationResult: ConversationCommentWorkResult = .init(pushedCodeChange: true, replyBody: "Addressed."),
         reviewResult: ReviewSummaryWorkResult = .init(pushedCodeChange: true, replyBody: "Addressed."),
@@ -45,6 +49,7 @@ final class StubWorkerSpawner: WorkerSpawning, @unchecked Sendable {
         reviewError: (any Error)? = nil
     ) {
         self.producesFix = producesFix
+        self.ciFixOutcomes = ciFixOutcomes
         self.result = result
         self.conversationResult = conversationResult
         self.reviewResult = reviewResult
@@ -62,7 +67,8 @@ final class StubWorkerSpawner: WorkerSpawning, @unchecked Sendable {
     var spawnCount: Int { lock.withLock { _spawned.count + _requests.count } }
 
     func spawn(_ spec: CIFixWorkerSpec) async -> any CIFixWorkerHandle {
-        let handle = StubWorkerHandle(id: spec.id, producesFix: producesFix)
+        let handle = ciFixOutcomes.map { StubWorkerHandle(id: spec.id, outcomes: $0) }
+            ?? StubWorkerHandle(id: spec.id, producesFix: producesFix)
         lock.withLock {
             _spawned.append(spec)
             _handles.append(handle)
@@ -114,26 +120,39 @@ final class StubWorkerSpawner: WorkerSpawning, @unchecked Sendable {
     }
 }
 
-/// A worker handle whose ``attemptFix()`` always returns a fixed verdict.
+/// A worker handle whose ``attemptFix()`` returns a fixed verdict, or a scripted
+/// per-call sequence (the last element repeats once the sequence is exhausted).
 ///
 /// Records how many times ``attemptFix()`` was invoked so a test can assert the
-/// loop did not re-attempt the worker after a no-progress stop.
+/// loop did not re-attempt the worker after a no-progress or cancel stop.
 final class StubWorkerHandle: CIFixWorkerHandle, @unchecked Sendable {
     let id: String
-    private let producesFix: Bool
+    private let outcomes: [CIFixAttemptOutcome]
     private let lock = NSLock()
     private var _attemptCount = 0
 
     init(id: String, producesFix: Bool) {
         self.id = id
-        self.producesFix = producesFix
+        self.outcomes = [producesFix ? .produced : .noFix]
+    }
+
+    /// A scripted per-call outcome sequence. The last element repeats for any
+    /// extra calls (so an over-eager loop that respawns would just keep getting
+    /// the final verdict — the test asserts the call count instead).
+    init(id: String, outcomes: [CIFixAttemptOutcome]) {
+        precondition(!outcomes.isEmpty, "need at least one scripted outcome")
+        self.id = id
+        self.outcomes = outcomes
     }
 
     /// Number of times ``attemptFix()`` has been invoked on this handle.
     var attemptCount: Int { lock.withLock { _attemptCount } }
 
-    func attemptFix() async -> Bool {
-        lock.withLock { _attemptCount += 1 }
-        return producesFix
+    func attemptFix() async -> CIFixAttemptOutcome {
+        lock.withLock {
+            let index = min(_attemptCount, outcomes.count - 1)
+            _attemptCount += 1
+            return outcomes[index]
+        }
     }
 }
