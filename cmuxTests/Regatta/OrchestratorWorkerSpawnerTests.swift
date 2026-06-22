@@ -60,6 +60,19 @@ struct OrchestratorWorkerSpawnerTests {
         )
     }
 
+    /// A stub agent-CLI resolver returning a fixed dummy executable + environment.
+    ///
+    /// Tests that exercise the spawn path inject this so they do **not** depend on a
+    /// real `claude`/`codex` being installed on the CI runner (the default resolver
+    /// would throw "not found" there and the worker would never spawn). The fake
+    /// ``PaneBridge`` never execs the path, so any value works.
+    private let stubResolve: WorkerAgentExecutableResolving = { _ in
+        WorkerAgentExecutableResolution(
+            executableURL: URL(fileURLWithPath: "/usr/bin/true"),
+            environment: ["PATH": "/usr/bin:/bin", "HOME": NSHomeDirectory()]
+        )
+    }
+
     private func ref(_ number: Int = 1) -> PullRequestRef {
         PullRequestRef(owner: "joshbermanssw", repo: "regatta", number: number)
     }
@@ -78,7 +91,8 @@ struct OrchestratorWorkerSpawnerTests {
         let spawner = OrchestratorWorkerSpawner(
             orchestrator: orchestrator,
             repoURLResolver: { _ in repo },
-            diffProbe: TestDiffProbe(result: true)
+            diffProbe: TestDiffProbe(result: true),
+            resolveExecutable: stubResolve
         )
         let handle = await spawner.spawn(CIFixWorkerSpec(pullRequest: ref(), branch: "main"))
         let produced = await handle.attemptFix()
@@ -97,7 +111,8 @@ struct OrchestratorWorkerSpawnerTests {
         let spawner = OrchestratorWorkerSpawner(
             orchestrator: orchestrator,
             repoURLResolver: { _ in repo },
-            diffProbe: TestDiffProbe(result: false)
+            diffProbe: TestDiffProbe(result: false),
+            resolveExecutable: stubResolve
         )
         let handle = await spawner.spawn(CIFixWorkerSpec(pullRequest: ref(), branch: "main"))
         let produced = await handle.attemptFix()
@@ -118,7 +133,8 @@ struct OrchestratorWorkerSpawnerTests {
         let spawner = OrchestratorWorkerSpawner(
             orchestrator: orchestrator,
             repoURLResolver: { _ in repo },
-            diffProbe: TestDiffProbe(result: true)
+            diffProbe: TestDiffProbe(result: true),
+            resolveExecutable: stubResolve
         )
         let thread = ReviewThread(
             id: "T1", isResolved: false, isOutdated: false, path: "Sources/A.swift",
@@ -154,7 +170,8 @@ struct OrchestratorWorkerSpawnerTests {
         let spawner = OrchestratorWorkerSpawner(
             orchestrator: orchestrator,
             repoURLResolver: { pr in await directories.directory(for: pr) },
-            diffProbe: TestDiffProbe(result: true)
+            diffProbe: TestDiffProbe(result: true),
+            resolveExecutable: stubResolve
         )
         let thread = ReviewThread(
             id: "T1", isResolved: false, isOutdated: false, path: "Sources/A.swift",
@@ -405,7 +422,8 @@ struct OrchestratorWorkerSpawnerTests {
         let spawner = OrchestratorWorkerSpawner(
             orchestrator: orchestrator,
             repoURLResolver: { _ in repo },
-            diffProbe: TestDiffProbe(result: true)
+            diffProbe: TestDiffProbe(result: true),
+            resolveExecutable: stubResolve
         )
         // Poller reports all checks green so the loop condition stops on success.
         let poller = TestGreenPoller()
