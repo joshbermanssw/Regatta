@@ -644,6 +644,7 @@
 		BA2904030000000000000002 /* RegattaSummonManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2904030000000000000001 /* RegattaSummonManager.swift */; };
 		BA2904020000000000000002 /* RegattaSummonOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2904020000000000000001 /* RegattaSummonOverlayView.swift */; };
 		BA2904010000000000000002 /* RegattaSummonViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2905010000000000000001 /* RegattaSummonViewModel.swift */; };
+		BA2931010000000000000002 /* RegattaSummonViewModelShepherdTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2931010000000000000001 /* RegattaSummonViewModelShepherdTests.swift */; };
 		BA2960000000000000000002 /* RegattaToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2960000000000000000001 /* RegattaToast.swift */; };
 		BA2960020000000000000002 /* RegattaToastCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2960020000000000000001 /* RegattaToastCenter.swift */; };
 		BA2950010000000000000002 /* RegattaToastCenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2950010000000000000001 /* RegattaToastCenterTests.swift */; };
@@ -1670,6 +1671,7 @@
 		BA2904030000000000000001 /* RegattaSummonManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaSummonManager.swift; sourceTree = "<group>"; };
 		BA2904020000000000000001 /* RegattaSummonOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaSummonOverlayView.swift; sourceTree = "<group>"; };
 		BA2905010000000000000001 /* RegattaSummonViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaSummonViewModel.swift; sourceTree = "<group>"; };
+		BA2931010000000000000001 /* RegattaSummonViewModelShepherdTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Regatta/RegattaSummonViewModelShepherdTests.swift; sourceTree = "<group>"; };
 		BA2960000000000000000001 /* RegattaToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaToast.swift; sourceTree = "<group>"; };
 		BA2960020000000000000001 /* RegattaToastCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaToastCenter.swift; sourceTree = "<group>"; };
 		BA2950010000000000000001 /* RegattaToastCenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Regatta/RegattaToastCenterTests.swift; sourceTree = "<group>"; };
@@ -3112,6 +3114,7 @@
 				96F7B20A6E94CC93127FDF45 /* RegattaRailModeTests.swift */,
 				CEACCEBF195D4756BC432C79 /* RegattaBlueMatrixDefaultThemeTests.swift */,
 				BA2930010000000000000001 /* RegattaFleetViewModelActivityTests.swift */,
+				BA2931010000000000000001 /* RegattaSummonViewModelShepherdTests.swift */,
 				BA2930020000000000000001 /* ShepherdCardModelTests.swift */,
 				BA2944020000000000000001 /* OrchestratorWorkerSpawnerTests.swift */,
 				BA2950010000000000000001 /* RegattaToastCenterTests.swift */,
@@ -4522,6 +4525,7 @@
 				BA2950020000000000000002 /* RegattaHandoffResolverTests.swift in Sources */,
 				6E88CF3593A8306CBF7E714A /* RegattaRailModeTests.swift in Sources */,
 				BA2950030000000000000002 /* RegattaSpawnFormViewModelTests.swift in Sources */,
+				BA2931010000000000000002 /* RegattaSummonViewModelShepherdTests.swift in Sources */,
 				BA2950010000000000000002 /* RegattaToastCenterTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
 				REE0CA0000000000000000B2 /* RemotesClientTests.swift in Sources */,
