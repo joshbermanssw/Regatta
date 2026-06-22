@@ -2,7 +2,12 @@
 ///
 /// Launches `claude -p <prompt>` — the CLI's non-interactive "print" mode, which
 /// runs the prompt to completion and exits, which is what a headless worker needs.
-/// The executable is resolved via `/usr/bin/env` so `claude` is found on `PATH`.
+///
+/// The launch here targets `/usr/bin/env` with `"claude"` as the leading argument
+/// as a portable default. The app-layer spawner rewrites this to the **resolved
+/// absolute executable** with a complete environment (dropping the leading
+/// `"claude"` token), so a spawned worker does not depend on the GUI app's minimal
+/// `PATH` to find `claude` — the cause of the worker "exited with code 127" bug.
 ///
 /// > Note: The exact non-interactive flag is flagged for Josh's confirmation (see
 /// > the PR's "Needs Josh's decision" section). `claude -p` is Claude Code's

@@ -114,6 +114,15 @@ final class RegattaFleetManager {
                         ref.number
                     )
                 )
+            },
+            onUnresolvableAgent: { error in
+                await RegattaToastCenter.shared.error(
+                    String(
+                        localized: "regatta.spawn.unresolvableAgent.title",
+                        defaultValue: "Agent CLI not found"
+                    ),
+                    (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                )
             }
         )
         self.workerSpawner = spawner
