@@ -33,6 +33,8 @@ let package = Package(
             dependencies: ["RegattaBrain"],
             resources: [
                 .copy("fake-claude.sh"),
+                .copy("fake-claude-no-partials.sh"),
+                .copy("fake-claude-error.sh"),
                 .copy("fake-judge.sh"),
             ],
             swiftSettings: [
