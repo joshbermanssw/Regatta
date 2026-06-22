@@ -38,6 +38,17 @@ public enum OutwardAction: Sendable, Equatable {
     /// - Parameter commentID: The id of the conversation comment the change
     ///   addresses.
     case pushConversationChange(commentID: String)
+
+    /// Post a reply to a reviewer's submitted review (review summary).
+    /// - Parameters:
+    ///   - reviewID: The id of the review being replied to.
+    ///   - body: The markdown reply body.
+    case replyToReview(reviewID: String, body: String)
+
+    /// Push a code change addressing a reviewer's submitted review (review
+    /// summary).
+    /// - Parameter reviewID: The id of the review the change addresses.
+    case pushReviewChange(reviewID: String)
 }
 
 /// The verdict the gate returns for a requested outward action.

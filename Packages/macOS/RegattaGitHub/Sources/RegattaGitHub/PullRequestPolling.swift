@@ -48,6 +48,25 @@ public protocol PullRequestPolling: Sendable {
     /// - Throws: ``GitHubCommandError`` when the fetch fails or cannot be parsed.
     func fetchConversationComments(owner: String, repo: String, prNumber: Int) async throws -> [PRConversationComment]
 
+    /// Fetches the submitted reviews (Approve / Request changes / Comment) for a
+    /// pull request, each carrying the reviewer's summary body.
+    ///
+    /// These drive the review-summary reactor: a PR approved with a note (or a
+    /// changes-requested review) produces only a review, not a conversation
+    /// comment, so the shepherd watches these separately.
+    ///
+    /// A default implementation returns `[]`, so a conformer that does not care
+    /// about reviews (e.g. a check-only fake) need not implement it. The real
+    /// ``GitHubPoller`` overrides it.
+    ///
+    /// - Parameters:
+    ///   - owner: The repository owner.
+    ///   - repo: The repository name.
+    ///   - prNumber: The pull-request number.
+    /// - Returns: An array of ``PRReview`` values, empty when the PR has none.
+    /// - Throws: ``GitHubCommandError`` when the fetch fails or cannot be parsed.
+    func fetchReviews(owner: String, repo: String, prNumber: Int) async throws -> [PRReview]
+
     /// The login of the currently authenticated `gh` user.
     ///
     /// The conversation-comment reactor uses this to skip comments the shepherd
@@ -57,6 +76,14 @@ public protocol PullRequestPolling: Sendable {
     /// - Returns: The authenticated user's login.
     /// - Throws: ``GitHubCommandError`` when the lookup fails.
     func currentUserLogin() async throws -> String
+}
+
+extension PullRequestPolling {
+    /// Default: no reviews. Conformers that do not care about review summaries
+    /// (e.g. check-only fakes) inherit this; ``GitHubPoller`` overrides it.
+    public func fetchReviews(owner: String, repo: String, prNumber: Int) async throws -> [PRReview] {
+        []
+    }
 }
 
 /// ``GitHubPoller`` satisfies ``PullRequestPolling`` directly — its existing

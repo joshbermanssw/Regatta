@@ -181,6 +181,45 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
         )
     }
 
+    func spawnWorker(for request: ReviewSummaryWorkRequest) async throws -> ReviewSummaryWorkResult {
+        guard let repoURL = await repoURLResolver(request.pullRequest) else {
+            // No local checkout to run against; surface a clear toast and report
+            // "nothing done" so the reactor leaves the review open for a retry.
+            await onMissingRepository(request.pullRequest)
+            return ReviewSummaryWorkResult(pushedCodeChange: false, replyBody: nil)
+        }
+
+        let prompt = Self.reviewSummaryPrompt(for: request)
+        let workerSpec = WorkerSpec(
+            name: "Address review \(request.review.id)",
+            prompt: prompt,
+            repoURL: repoURL,
+            provider: provider
+        )
+        let id = await orchestrator.spawnWorker(workerSpec)
+        let terminal = await orchestrator.awaitTerminal(id)
+
+        guard terminal?.status == .done else {
+            // Crash / block / cancel: not handled, retry next poll.
+            return ReviewSummaryWorkResult(pushedCodeChange: false, replyBody: nil)
+        }
+
+        let pushed = await producedChanges(workerID: id)
+        if pushed {
+            return ReviewSummaryWorkResult(
+                pushedCodeChange: true,
+                replyBody: String(
+                    localized: "regatta.review.reply",
+                    defaultValue: "Addressed in a follow-up commit."
+                )
+            )
+        }
+        // The agent finished cleanly but produced no code change — e.g. a pure
+        // approval or a comment that needed no action. Report "nothing done": no
+        // reply is posted, matching the spec (a bare approval triggers no reply).
+        return ReviewSummaryWorkResult(pushedCodeChange: false, replyBody: nil)
+    }
+
     // MARK: - Helpers
 
     /// Whether the worker's worktree has uncommitted changes (its work product).
@@ -213,6 +252,30 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
 
         Address the comment: if it asks for a code change, make it, commit it, and \
         push. If it is a question, investigate and prepare a concise answer.
+        """
+    }
+
+    /// Builds the addressing prompt from a submitted review's summary body.
+    private static func reviewSummaryPrompt(for request: ReviewSummaryWorkRequest) -> String {
+        let verdict: String
+        switch request.review.state {
+        case .approved: verdict = "approved the PR"
+        case .changesRequested: verdict = "requested changes"
+        case .commented: verdict = "left a review comment"
+        case .dismissed: verdict = "dismissed a review"
+        case .other: verdict = "submitted a review"
+        }
+        return """
+        @\(request.review.author) \(verdict) on PR \
+        \(request.pullRequest.repoSlug)#\(request.pullRequest.number) with this \
+        summary:
+
+        \(request.review.body)
+
+        Address the review: if it asks for a code change, make it, commit it, and \
+        push. If it is a question, investigate and prepare a concise answer. If \
+        there is genuinely nothing to do (e.g. a plain approval with no actionable \
+        request), make no change and post no reply.
         """
     }
 }

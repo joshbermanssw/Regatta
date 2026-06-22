@@ -47,6 +47,9 @@ struct ShepherdCard: View {
             if !model.conversationRows.isEmpty {
                 conversationSection
             }
+            if !model.reviewRows.isEmpty {
+                reviewsSection
+            }
             if !model.activity.isEmpty {
                 activitySection
             }
@@ -145,6 +148,13 @@ struct ShepherdCard: View {
                 parts.append(String(
                     format: String(localized: "fleet.shepherd.comments", defaultValue: "%lld comments"),
                     comments
+                ))
+            }
+            let reviews = model.reviewCount
+            if reviews > 0 {
+                parts.append(String(
+                    format: String(localized: "fleet.shepherd.reviews", defaultValue: "%lld reviews"),
+                    reviews
                 ))
             }
             return parts.joined(separator: " · ")
@@ -481,6 +491,104 @@ struct ShepherdCard: View {
                 defaultValue: "Comment from %1$@: %2$@"
             ),
             row.author.isEmpty ? unknownAuthor : row.author, row.body
+        )
+    }
+
+    // MARK: - Reviews (review summaries)
+
+    /// The submitted-review section. Each row shows a verdict badge (Approved /
+    /// Changes requested / Commented), the reviewer, and the review summary
+    /// snippet. The shepherd's own reviews are shown muted (never reacted to).
+    private var reviewsSection: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            sectionLabel(reviewsSectionTitle)
+            ForEach(model.reviewRows) { row in
+                HStack(alignment: .top, spacing: 6) {
+                    reviewBadge(row.badge)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(row.author.isEmpty ? unknownAuthor : row.author)
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(row.isSelf ? .tertiary : .secondary)
+                            .lineLimit(1)
+                        if !row.body.isEmpty {
+                            Text(row.body)
+                                .font(.system(size: 10))
+                                .foregroundStyle(row.isSelf ? .secondary : .primary)
+                                .lineLimit(2)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(reviewAccessibility(row))
+            }
+        }
+    }
+
+    /// The reviews section header, including the actionable-review count.
+    private var reviewsSectionTitle: String {
+        let count = model.reviewCount
+        guard count > 0 else {
+            return String(localized: "fleet.section.reviews", defaultValue: "Reviews")
+        }
+        return String(
+            format: String(
+                localized: "fleet.section.reviews.count",
+                defaultValue: "Reviews (%lld)"
+            ),
+            count
+        )
+    }
+
+    private func reviewBadge(_ badge: ShepherdCardModel.ReviewBadge) -> some View {
+        Text(reviewBadgeText(badge))
+            .font(.system(size: 8, weight: .semibold))
+            .foregroundStyle(reviewBadgeColor(badge))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(
+                Capsule().fill(reviewBadgeColor(badge).opacity(0.15))
+            )
+    }
+
+    private func reviewBadgeText(_ badge: ShepherdCardModel.ReviewBadge) -> String {
+        switch badge {
+        case .approved:
+            return String(localized: "fleet.review.approved", defaultValue: "Approved")
+        case .changesRequested:
+            return String(localized: "fleet.review.changesRequested", defaultValue: "Changes requested")
+        case .commented:
+            return String(localized: "fleet.review.commented", defaultValue: "Commented")
+        case .other:
+            return String(localized: "fleet.review.other", defaultValue: "Review")
+        }
+    }
+
+    private func reviewBadgeColor(_ badge: ShepherdCardModel.ReviewBadge) -> Color {
+        switch badge {
+        case .approved: return .green
+        case .changesRequested: return .orange
+        case .commented: return .blue
+        case .other: return .secondary
+        }
+    }
+
+    private func reviewAccessibility(_ row: ShepherdCardModel.ReviewRow) -> String {
+        if row.isSelf {
+            return String(
+                format: String(
+                    localized: "fleet.review.a11y.self",
+                    defaultValue: "Your review (%1$@): %2$@"
+                ),
+                reviewBadgeText(row.badge), row.body
+            )
+        }
+        return String(
+            format: String(
+                localized: "fleet.review.a11y",
+                defaultValue: "Review from %1$@ (%2$@): %3$@"
+            ),
+            row.author.isEmpty ? unknownAuthor : row.author, reviewBadgeText(row.badge), row.body
         )
     }
 

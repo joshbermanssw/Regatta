@@ -113,6 +113,40 @@ public actor GitHubPoller {
         return try parseConversationComments(from: json)
     }
 
+    // MARK: - Reviews (review summaries)
+
+    /// Fetches the submitted reviews (Approve / Request changes / Comment) for a
+    /// pull request, each carrying the reviewer's **summary body**.
+    ///
+    /// Shells out to:
+    /// ```
+    /// gh pr view <prNumber> --repo <owner>/<repo> --json reviews
+    /// ```
+    /// A submitted review's summary body is *not* a conversation comment, so a PR
+    /// approved with a note produces only a review — the review-summary reactor
+    /// watches these so the shepherd acts on it.
+    ///
+    /// - Parameters:
+    ///   - owner: The repository owner (user or organisation) on GitHub.
+    ///   - repo: The repository name.
+    ///   - prNumber: The pull-request number.
+    /// - Returns: An array of ``PRReview`` values, oldest first.
+    ///   Returns an empty array when the PR has no submitted reviews.
+    /// - Throws: ``GitHubCommandError`` when the command fails or the output
+    ///   cannot be parsed.
+    public func fetchReviews(
+        owner: String,
+        repo: String,
+        prNumber: Int
+    ) async throws -> [PRReview] {
+        let json = try await commandRunner.run([
+            "pr", "view", "\(prNumber)",
+            "--repo", "\(owner)/\(repo)",
+            "--json", "reviews",
+        ])
+        return try parseReviews(from: json)
+    }
+
     // MARK: - Authenticated user
 
     /// The login of the currently authenticated `gh` user, cached after the first

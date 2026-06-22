@@ -233,4 +233,49 @@ struct ShepherdCardModelTests {
         // Only the non-self comment counts toward the actionable conversation count.
         #expect(model.conversationCount == 1)
     }
+
+    // MARK: - Reviews (review summaries)
+
+    private func review(
+        _ id: String,
+        author: String,
+        state: PRReview.State,
+        body: String = "summary"
+    ) -> PRReview {
+        PRReview(id: id, author: author, state: state, body: body, submittedAt: "2026-06-21T12:00:00Z")
+    }
+
+    @Test("reviews project into rows with verdict badges")
+    func reviewRowsProject() {
+        let state = ShepherdState(
+            pullRequest: ref(),
+            phase: .watching,
+            reviews: [
+                review("R1", author: "alice", state: .approved, body: "nice work, one nit"),
+                review("R2", author: "bob", state: .changesRequested, body: "fix this"),
+                review("R3", author: "carol", state: .commented, body: "question?"),
+            ]
+        )
+        let model = ShepherdCardModel(state: state)
+        #expect(model.reviewRows.map(\.id) == ["R1", "R2", "R3"])
+        #expect(model.reviewRows.map(\.badge) == [.approved, .changesRequested, .commented])
+        #expect(model.reviewRows.first?.author == "alice")
+        #expect(model.reviewCount == 3)
+    }
+
+    @Test("the shepherd's own reviews are marked self and excluded from the actionable count")
+    func selfReviewsMarkedAndExcluded() {
+        let state = ShepherdState(
+            pullRequest: ref(),
+            phase: .watching,
+            reviews: [
+                review("R1", author: "alice", state: .changesRequested, body: "fix this"),
+                review("MINE", author: "shepherd-bot", state: .commented, body: "addressed"),
+            ]
+        )
+        let model = ShepherdCardModel(state: state, shepherdLogin: "shepherd-bot")
+        let mine = model.reviewRows.first { $0.id == "MINE" }
+        #expect(mine?.isSelf == true)
+        #expect(model.reviewCount == 1)
+    }
 }

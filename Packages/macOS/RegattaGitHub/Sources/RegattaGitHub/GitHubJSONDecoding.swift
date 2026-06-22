@@ -170,6 +170,50 @@ func parseConversationComments(from json: String) throws(GitHubCommandError) -> 
     }
 }
 
+// MARK: - Review (review-summary) decoding
+
+/// One node from `gh pr view --json reviews`.
+///
+/// `gh` returns a `reviews` array of submitted reviews, each carrying the
+/// reviewer's summary `body`, the review `state`, the `author`, and the
+/// `submittedAt` timestamp. A bare approval with no note has an empty `body`.
+struct ReviewNode: Decodable {
+    let id: String?
+    let author: ReviewAuthor?
+    let state: String?
+    let body: String?
+    let submittedAt: String?
+}
+
+struct ReviewAuthor: Decodable {
+    let login: String?
+}
+
+/// Top-level shape of `gh pr view --json reviews`.
+struct PRViewReviewsResponse: Decodable {
+    let reviews: [ReviewNode]?
+}
+
+func parseReviews(from json: String) throws(GitHubCommandError) -> [PRReview] {
+    let data = Data(json.utf8)
+    let decoder = JSONDecoder()
+    do {
+        let response = try decoder.decode(PRViewReviewsResponse.self, from: data)
+        let nodes = response.reviews ?? []
+        return nodes.map { node in
+            PRReview(
+                id: node.id ?? "",
+                author: node.author?.login ?? "",
+                state: node.state.map { PRReview.State(rawValue: $0) ?? .other } ?? .other,
+                body: node.body ?? "",
+                submittedAt: node.submittedAt ?? ""
+            )
+        }
+    } catch {
+        throw GitHubCommandError.jsonDecodingFailed(error.localizedDescription)
+    }
+}
+
 func parseReviewThreads(from json: String) throws(GitHubCommandError) -> [ReviewThread] {
     let data = Data(json.utf8)
     let decoder = JSONDecoder()

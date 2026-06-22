@@ -14,32 +14,42 @@ final class StubWorkerSpawner: WorkerSpawning, @unchecked Sendable {
     private var _spawned: [CIFixWorkerSpec] = []
     private var _requests: [ReviewThreadWorkRequest] = []
     private var _conversationRequests: [ConversationCommentWorkRequest] = []
+    private var _reviewRequests: [ReviewSummaryWorkRequest] = []
     private let producesFix: Bool
     private let result: ReviewThreadWorkResult
     private let conversationResult: ConversationCommentWorkResult
+    private let reviewResult: ReviewSummaryWorkResult
     private let error: (any Error)?
     private let conversationError: (any Error)?
+    private let reviewError: (any Error)?
 
     /// - Parameters:
     ///   - producesFix: What each spawned ci-fix worker's `attemptFix()` returns.
     ///   - result: The canned review-thread work result.
     ///   - conversationResult: The canned conversation-comment work result.
+    ///   - reviewResult: The canned review-summary work result.
     ///   - error: When non-nil, the review-thread ``spawnWorker(for:)`` throws
     ///     this instead.
     ///   - conversationError: When non-nil, the conversation-comment
     ///     ``spawnWorker(for:)`` throws this instead.
+    ///   - reviewError: When non-nil, the review-summary ``spawnWorker(for:)``
+    ///     throws this instead.
     init(
         producesFix: Bool = true,
         result: ReviewThreadWorkResult = .init(pushedCodeChange: true, replyBody: "Addressed.", shouldResolve: true),
         conversationResult: ConversationCommentWorkResult = .init(pushedCodeChange: true, replyBody: "Addressed."),
+        reviewResult: ReviewSummaryWorkResult = .init(pushedCodeChange: true, replyBody: "Addressed."),
         error: (any Error)? = nil,
-        conversationError: (any Error)? = nil
+        conversationError: (any Error)? = nil,
+        reviewError: (any Error)? = nil
     ) {
         self.producesFix = producesFix
         self.result = result
         self.conversationResult = conversationResult
+        self.reviewResult = reviewResult
         self.error = error
         self.conversationError = conversationError
+        self.reviewError = reviewError
     }
 
     // MARK: - ci-fix spawn (#30)
@@ -78,6 +88,20 @@ final class StubWorkerSpawner: WorkerSpawning, @unchecked Sendable {
         lock.withLock { _conversationRequests.append(request) }
         if let conversationError { throw conversationError }
         return conversationResult
+    }
+
+    // MARK: - review-summary spawn
+
+    /// Every review-summary request passed to ``spawnWorker(for:)``, in order.
+    var reviewRequests: [ReviewSummaryWorkRequest] { lock.withLock { _reviewRequests } }
+
+    /// Number of review-summary workers spawned.
+    var reviewSpawnCount: Int { lock.withLock { _reviewRequests.count } }
+
+    func spawnWorker(for request: ReviewSummaryWorkRequest) async throws -> ReviewSummaryWorkResult {
+        lock.withLock { _reviewRequests.append(request) }
+        if let reviewError { throw reviewError }
+        return reviewResult
     }
 }
 

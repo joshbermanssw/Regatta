@@ -102,6 +102,35 @@ struct ShepherdCardModel: Identifiable, Equatable, Sendable {
         let isSelf: Bool
     }
 
+    // MARK: - Reviews (review summaries)
+
+    /// The verdict badge shown for a submitted review row.
+    enum ReviewBadge: Equatable, Sendable {
+        /// The reviewer approved the PR.
+        case approved
+        /// The reviewer requested changes.
+        case changesRequested
+        /// The reviewer left a comment-only review.
+        case commented
+        /// A dismissed or otherwise inert review.
+        case other
+    }
+
+    /// One submitted-review (review summary) row in the card.
+    struct ReviewRow: Identifiable, Equatable, Sendable {
+        /// Stable identity (the review id).
+        let id: String
+        /// The login of the reviewer.
+        let author: String
+        /// The verdict badge to render (Approved / Changes requested / Commented).
+        let badge: ReviewBadge
+        /// The review summary body, used as the row's snippet text. May be empty.
+        let body: String
+        /// Whether the shepherd itself authored this review. Such rows are shown
+        /// muted and are never reacted to (loop guard).
+        let isSelf: Bool
+    }
+
     // MARK: - Stored projection
 
     /// The underlying shepherd snapshot, retained for the header (title, phase).
@@ -118,6 +147,9 @@ struct ShepherdCardModel: Identifiable, Equatable, Sendable {
 
     /// The per-conversation-comment rows, in input order.
     let conversationRows: [ConversationRow]
+
+    /// The per-review (review summary) rows, in input order.
+    let reviewRows: [ReviewRow]
 
     /// The activity log, newest first.
     let activity: [ShepherdActivityEntry]
@@ -139,6 +171,11 @@ struct ShepherdCardModel: Identifiable, Equatable, Sendable {
     /// shepherd itself (the ones the reactor acts on).
     var conversationCount: Int {
         conversationRows.filter { !$0.isSelf }.count
+    }
+
+    /// The number of reviews authored by people other than the shepherd itself.
+    var reviewCount: Int {
+        reviewRows.filter { !$0.isSelf }.count
     }
 
     // MARK: - Projection
@@ -172,6 +209,31 @@ struct ShepherdCardModel: Identifiable, Equatable, Sendable {
         self.conversationRows = state.conversationComments.map {
             Self.conversationRow(from: $0, shepherdLogin: shepherdLogin)
         }
+        self.reviewRows = state.reviews.map {
+            Self.reviewRow(from: $0, shepherdLogin: shepherdLogin)
+        }
+    }
+
+    /// Maps a raw ``PRReview`` into a card review row.
+    private static func reviewRow(
+        from review: PRReview,
+        shepherdLogin: String?
+    ) -> ReviewRow {
+        let isSelf = shepherdLogin.map { !$0.isEmpty && review.author == $0 } ?? false
+        let badge: ReviewBadge
+        switch review.state {
+        case .approved: badge = .approved
+        case .changesRequested: badge = .changesRequested
+        case .commented: badge = .commented
+        case .dismissed, .other: badge = .other
+        }
+        return ReviewRow(
+            id: review.id,
+            author: review.author,
+            badge: badge,
+            body: review.body,
+            isSelf: isSelf
+        )
     }
 
     /// Maps a raw ``PRConversationComment`` into a card conversation row.
