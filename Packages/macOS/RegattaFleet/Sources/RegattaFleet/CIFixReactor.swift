@@ -220,9 +220,21 @@ public actor CIFixReactor {
 
         var iteration = 0
         while true {
-            // RED COMMIT: cancel-stop intentionally not yet wired so the cancel
-            // regression tests fail; the fix commit restores these guards.
+            // A cancel requested before this iteration starts is a final stop —
+            // never spawn the next worker. This closes the window where a dismiss
+            // / ✕ lands between iterations.
+            if cancelled.contains(id) {
+                return .cancelled
+            }
+
             let attempt = await worker.attemptFix()
+
+            // A cancelled/killed worker (user ✕, dismiss cascade, SIGTERM/SIGKILL)
+            // stops the loop. This is the core fix: a cancel is "stop", never
+            // "iteration finished, not green → advance + respawn".
+            if attempt == .cancelled || cancelled.contains(id) {
+                return .cancelled
+            }
 
             let producedFix = attempt == .produced
             if producedFix {

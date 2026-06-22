@@ -149,8 +149,13 @@ public actor RegattaLoopEngine {
         status = .running
 
         while true {
-            // RED COMMIT: cancel-stop intentionally not yet wired so the cancel
-            // regression tests fail; the fix commit restores this guard.
+            // A cancel (user ✕, shepherd dismiss cascade, or an enclosing
+            // cancelled Task) is a final stop, never a retry: terminate as
+            // cancelled before starting another iteration.
+            if cancelRequested || Task.isCancelled {
+                finish(.stopped(.cancelled))
+                break
+            }
             if manualStopRequested {
                 finish(.stopped(.manualStop))
                 break
@@ -180,8 +185,15 @@ public actor RegattaLoopEngine {
             let elapsed = now().timeIntervalSince(started)
             record(outcome, index: index, duration: elapsed)
 
-            // RED COMMIT: cancelled-outcome stop intentionally not yet wired so
-            // the cancel regression tests fail; the fix commit restores this.
+            // A cancelled/killed worker is a final stop — never "iteration
+            // finished, not green → advance". The engine decides this directly
+            // (ahead of the pluggable condition) so a user cancel can never be
+            // reinterpreted by a condition as a reason to spawn the next
+            // iteration. This is the loop-respawn-on-cancel fix.
+            if outcome.kind == .cancelled {
+                finish(.stopped(.cancelled))
+                break
+            }
 
             // A completed iteration may push us to/over the token budget; that
             // cap is reported even though the worker outcome itself is fine.
