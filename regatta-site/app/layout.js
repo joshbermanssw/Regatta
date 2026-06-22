@@ -18,7 +18,7 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata = {
-  metadataBase: new URL("https://regatta.dev"),
+  metadataBase: new URL("https://regatta-site.vercel.app"),
   title: "Regatta — the command deck for AI coding agents",
   description:
     "Hand off the work; a brain races a fleet of agent terminals to a real finish line and shepherds your PRs home.",

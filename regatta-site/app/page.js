@@ -56,11 +56,13 @@ const MODEL = [
   { term: "Memory", def: "the ship's log and charts" },
 ];
 
+const STATE_SIGNAL = { running: "run", queued: "queue", landed: "land" };
+
 const FLEET_ROWS = [
-  { id: "worker-01", task: "fix/auth-token", state: "running", signal: "run" },
-  { id: "worker-02", task: "test/regatta-suite", state: "running", signal: "run" },
-  { id: "worker-03", task: "refactor/rail-view", state: "queued", signal: "queue" },
-  { id: "worker-04", task: "shepherd · pr #82", state: "landed", signal: "land" },
+  { id: "worker-01", task: "fix/auth-token", state: "running" },
+  { id: "worker-02", task: "test/regatta-suite", state: "running" },
+  { id: "worker-03", task: "refactor/rail-view", state: "queued" },
+  { id: "worker-04", task: "shepherd · pr #82", state: "landed" },
 ];
 
 export default function Page() {
@@ -118,17 +120,20 @@ export default function Page() {
               <span className="readout-cap">cap 4/4</span>
             </div>
             <ul className="readout-list">
-              {FLEET_ROWS.map((r) => (
-                <li key={r.id} className="readout-row">
-                  <FleetMark size={14} />
-                  <span className="r-id">{r.id}</span>
-                  <span className="r-task">{r.task}</span>
-                  <span className={`r-state state-${r.signal}`}>
-                    <span className={`dot dot-${r.signal}`} />
-                    {r.state}
-                  </span>
-                </li>
-              ))}
+              {FLEET_ROWS.map((r) => {
+                const sig = STATE_SIGNAL[r.state];
+                return (
+                  <li key={r.id} className="readout-row">
+                    <FleetMark size={14} />
+                    <span className="r-id">{r.id}</span>
+                    <span className="r-task">{r.task}</span>
+                    <span className={`r-state state-${sig}`}>
+                      <span className={`dot dot-${sig}`} />
+                      {r.state}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
             <div className="readout-foot">
               <span>leg 3 · windward mark</span>
