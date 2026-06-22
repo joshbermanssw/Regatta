@@ -1,0 +1,52 @@
+<svg width="880" height="380" viewBox="0 0 880 380" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Regatta palette">
+  <title>Regatta palette</title>
+  <rect width="880" height="380" fill="#101116"/>
+  <text x="40" y="46" font-family="Space Grotesk, Inter, sans-serif" font-size="26" font-weight="600" fill="#FFFFFF">Regatta — Palette</text>
+  <text x="40" y="68" font-family="JetBrains Mono, ui-monospace, monospace" font-size="12" fill="#686868">extends Blue Matrix · Deck Black canvas</text>
+
+  <!-- row 1 -->
+  <g font-family="JetBrains Mono, ui-monospace, monospace">
+    <g transform="translate(40,96)">
+      <rect width="170" height="78" rx="10" fill="#1E90FF"/>
+      <text x="0" y="98" font-size="14" fill="#FFFFFF">Azimuth Blue</text>
+      <text x="0" y="116" font-size="12" fill="#686868">#1E90FF · primary</text>
+    </g>
+    <g transform="translate(240,96)">
+      <rect width="170" height="78" rx="10" fill="#00FF9C"/>
+      <text x="0" y="98" font-size="14" fill="#FFFFFF">Wake Green</text>
+      <text x="0" y="116" font-size="12" fill="#686868">#00FF9C · live</text>
+    </g>
+    <g transform="translate(440,96)">
+      <rect width="170" height="78" rx="10" fill="#FFFC58"/>
+      <text x="0" y="98" font-size="14" fill="#FFFFFF">Caution</text>
+      <text x="0" y="116" font-size="12" fill="#686868">#FFFC58 · queued</text>
+    </g>
+    <g transform="translate(640,96)">
+      <rect width="170" height="78" rx="10" fill="#FF5680"/>
+      <text x="0" y="98" font-size="14" fill="#FFFFFF">Foul Red</text>
+      <text x="0" y="116" font-size="12" fill="#686868">#FF5680 · failed</text>
+    </g>
+
+    <!-- row 2 -->
+    <g transform="translate(40,236)">
+      <rect width="170" height="78" rx="10" fill="#101116" stroke="#2A2D38"/>
+      <text x="0" y="98" font-size="14" fill="#FFFFFF">Deck Black</text>
+      <text x="0" y="116" font-size="12" fill="#686868">#101116 · canvas</text>
+    </g>
+    <g transform="translate(240,236)">
+      <rect width="170" height="78" rx="10" fill="#15171E" stroke="#2A2D38"/>
+      <text x="0" y="98" font-size="14" fill="#FFFFFF">Panel</text>
+      <text x="0" y="116" font-size="12" fill="#686868">#15171E · surface</text>
+    </g>
+    <g transform="translate(440,236)">
+      <rect width="170" height="78" rx="10" fill="#FFFFFF"/>
+      <text x="0" y="98" font-size="14" fill="#FFFFFF">Hull White</text>
+      <text x="0" y="116" font-size="12" fill="#686868">#FFFFFF · foreground</text>
+    </g>
+    <g transform="translate(640,236)">
+      <rect width="170" height="78" rx="10" fill="#686868"/>
+      <text x="0" y="98" font-size="14" fill="#FFFFFF">Fog</text>
+      <text x="0" y="116" font-size="12" fill="#686868">#686868 · muted</text>
+    </g>
+  </g>
+</svg>
