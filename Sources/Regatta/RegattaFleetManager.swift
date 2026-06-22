@@ -61,6 +61,15 @@ final class RegattaFleetManager {
     /// The bridge forwarding Fleet snapshots to the conversation-comment reactor.
     private let conversationCommentBridge: FleetConversationCommentBridge
 
+    /// The review-summary reactor that spawns a real addressing worker for each
+    /// new actionable submitted review (Approve / Request changes / Comment
+    /// summary), skipping the shepherd's own reviews, retained for the app's
+    /// lifetime.
+    private let reviewSummaryReactor: ReviewSummaryReactor
+
+    /// The bridge forwarding Fleet snapshots to the review-summary reactor.
+    private let reviewSummaryBridge: FleetReviewSummaryBridge
+
     private let defaults: UserDefaults
     private var defaultsObserver: NSObjectProtocol?
 
@@ -149,18 +158,37 @@ final class RegattaFleetManager {
             fleet: fleet, reactor: conversationCommentReactor
         )
 
+        // Review-summary handler: spawn a real addressing worker per new
+        // actionable submitted review (e.g. a PR approved with a summary note, or
+        // a changes-requested review), gated and writing back through the real
+        // `gh` writer. The self-login provider resolves the authenticated `gh`
+        // user so the reactor skips the shepherd's own reviews (loop prevention).
+        let reviewSummaryReactor = ReviewSummaryReactor(
+            spawner: spawner,
+            writer: poller,
+            gate: fleet.autonomyGate,
+            log: RegattaReviewSummaryActivityLogger(),
+            selfLogin: { try? await poller.currentUserLogin() }
+        )
+        self.reviewSummaryReactor = reviewSummaryReactor
+        self.reviewSummaryBridge = FleetReviewSummaryBridge(
+            fleet: fleet, reactor: reviewSummaryReactor
+        )
+
         observeConcurrencyCap()
         startReactors()
     }
 
     /// Starts all Fleet→reactor bridges so handing a PR off actually reacts to CI
-    /// failures, new review threads, and new conversation comments end-to-end.
-    /// Idempotent (each bridge's `start()` is a no-op once running).
+    /// failures, new review threads, new conversation comments, and new review
+    /// summaries end-to-end. Idempotent (each bridge's `start()` is a no-op once
+    /// running).
     private func startReactors() {
-        Task { [ciFixBridge, reviewThreadBridge, conversationCommentBridge] in
+        Task { [ciFixBridge, reviewThreadBridge, conversationCommentBridge, reviewSummaryBridge] in
             await ciFixBridge.start()
             await reviewThreadBridge.start()
             await conversationCommentBridge.start()
+            await reviewSummaryBridge.start()
         }
     }
 

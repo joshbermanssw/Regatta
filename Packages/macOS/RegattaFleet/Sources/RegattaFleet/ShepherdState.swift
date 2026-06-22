@@ -35,6 +35,18 @@ public struct ShepherdState: Sendable, Equatable, Identifiable, FleetEntry {
     /// written before this field still decode (and existing tests still build).
     public let conversationComments: [PRConversationComment]
 
+    /// The submitted reviews (Approve / Request changes / Comment) from the most
+    /// recent successful poll. Empty until the first poll completes.
+    ///
+    /// A reviewer's *review summary body* — the note they write when submitting
+    /// an Approve / Request changes / Comment review — lives here, not in
+    /// ``conversationComments`` or ``reviewThreads``. The review-summary reactor
+    /// watches these so the shepherd acts on a PR that was, e.g., approved with a
+    /// summary note (which produces no conversation comment at all). Additive with
+    /// a default of `[]` so persisted snapshots written before this field still
+    /// decode (and existing tests/fakes still build).
+    public let reviews: [PRReview]
+
     /// The per-PR autonomy policy gating outward actions (push/reply/resolve).
     ///
     /// Defaults to ``AutonomyMode/staged`` for new handoffs (#32 safety policy).
@@ -73,6 +85,8 @@ public struct ShepherdState: Sendable, Equatable, Identifiable, FleetEntry {
     ///   - reviewThreads: The latest review threads. Defaults to empty.
     ///   - conversationComments: The latest top-level PR conversation comments.
     ///     Defaults to empty.
+    ///   - reviews: The latest submitted reviews (review summaries). Defaults to
+    ///     empty.
     ///   - autonomyMode: The per-PR autonomy policy. Defaults to
     ///     ``AutonomyMode/staged`` (the #32 safety default for new handoffs).
     ///   - needsAttention: The human-resolution reason, or `nil` (issue #35).
@@ -82,6 +96,7 @@ public struct ShepherdState: Sendable, Equatable, Identifiable, FleetEntry {
         checks: PRCheckSummary = PRCheckSummary(checks: []),
         reviewThreads: [ReviewThread] = [],
         conversationComments: [PRConversationComment] = [],
+        reviews: [PRReview] = [],
         autonomyMode: AutonomyMode = .staged,
         needsAttention: String? = nil
     ) {
@@ -90,6 +105,7 @@ public struct ShepherdState: Sendable, Equatable, Identifiable, FleetEntry {
         self.checks = checks
         self.reviewThreads = reviewThreads
         self.conversationComments = conversationComments
+        self.reviews = reviews
         self.autonomyMode = autonomyMode
         self.needsAttention = needsAttention
     }

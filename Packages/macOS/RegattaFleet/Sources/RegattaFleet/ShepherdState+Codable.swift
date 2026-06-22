@@ -25,6 +25,7 @@ extension ShepherdState: Codable {
         case checks
         case reviewThreads
         case conversationComments
+        case reviews
         case autonomyMode
         case needsAttention
     }
@@ -40,6 +41,7 @@ extension ShepherdState: Codable {
         let conversationComments = try container.decodeIfPresent(
             [PRConversationComment].self, forKey: .conversationComments
         ) ?? []
+        let reviews = try container.decodeIfPresent([PRReview].self, forKey: .reviews) ?? []
         let autonomyMode = try container.decodeIfPresent(AutonomyMode.self, forKey: .autonomyMode)
             ?? .staged
         let needsAttention = try container.decodeIfPresent(String.self, forKey: .needsAttention)
@@ -49,6 +51,7 @@ extension ShepherdState: Codable {
             checks: checks,
             reviewThreads: reviewThreads,
             conversationComments: conversationComments,
+            reviews: reviews,
             autonomyMode: autonomyMode,
             needsAttention: needsAttention
         )
@@ -61,6 +64,7 @@ extension ShepherdState: Codable {
         try container.encode(checks, forKey: .checks)
         try container.encode(reviewThreads, forKey: .reviewThreads)
         try container.encode(conversationComments, forKey: .conversationComments)
+        try container.encode(reviews, forKey: .reviews)
         try container.encode(autonomyMode, forKey: .autonomyMode)
         try container.encodeIfPresent(needsAttention, forKey: .needsAttention)
     }

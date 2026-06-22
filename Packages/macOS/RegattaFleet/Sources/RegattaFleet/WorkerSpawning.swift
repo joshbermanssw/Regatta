@@ -110,16 +110,62 @@ public struct ConversationCommentWorkResult: Sendable, Equatable {
     }
 }
 
+/// A request to spawn an ephemeral worker that addresses one reviewer's
+/// submitted review (review summary) — the Approve / Request changes / Comment
+/// note a reviewer left when submitting their review.
+///
+/// Carries the context an addressing agent needs: which PR and the review that
+/// triggered it. The orchestrator turns this into a live agent pane; a stub
+/// spawner records the request in tests.
+public struct ReviewSummaryWorkRequest: Sendable, Equatable {
+    /// The pull request whose review is being addressed.
+    public let pullRequest: PullRequestRef
+    /// The review the worker must address.
+    public let review: PRReview
+
+    /// Creates a work request.
+    /// - Parameters:
+    ///   - pullRequest: The PR the review belongs to.
+    ///   - review: The review to address.
+    public init(pullRequest: PullRequestRef, review: PRReview) {
+        self.pullRequest = pullRequest
+        self.review = review
+    }
+}
+
+/// The outcome of an addressing worker run for a review summary.
+///
+/// The reactor uses this to decide whether to post a reply once the worker
+/// finishes. A pure approval typically yields nothing to do — the worker reports
+/// no pushed change and no reply, and the reactor posts nothing ("nothing done").
+public struct ReviewSummaryWorkResult: Sendable, Equatable {
+    /// Whether the worker pushed a code change addressing the review.
+    public let pushedCodeChange: Bool
+    /// An optional reply to post on the PR, or `nil` to post none (e.g. when the
+    /// review is a pure approval with nothing to address).
+    public let replyBody: String?
+
+    /// Creates a work result.
+    /// - Parameters:
+    ///   - pushedCodeChange: Whether code was pushed.
+    ///   - replyBody: Reply to post, or `nil` for none.
+    public init(pushedCodeChange: Bool, replyBody: String?) {
+        self.pushedCodeChange = pushedCodeChange
+        self.replyBody = replyBody
+    }
+}
+
 /// The single injection seam for spawning Fleet workers, mirroring the pane
 /// bridge / orchestrator from issues #14 and #16.
 ///
 /// All reactive layers spawn agent workers through this one seam: the ci-fix
 /// loop (#30) spawns a `ci-fix` worker scoped to a PR branch, the review-thread
-/// handler (#31) spawns an addressing worker scoped to a single thread, and the
+/// handler (#31) spawns an addressing worker scoped to a single thread, the
 /// conversation-comment handler spawns an addressing worker scoped to one
-/// top-level PR comment. Depending on `any WorkerSpawning` lets each ship and be
-/// tested independently; the production spawner is wired when the orchestrator
-/// lands, and tests inject stubs.
+/// top-level PR comment, and the review-summary handler spawns an addressing
+/// worker scoped to one submitted review. Depending on `any WorkerSpawning` lets
+/// each ship and be tested independently; the production spawner is wired when
+/// the orchestrator lands, and tests inject stubs.
 public protocol WorkerSpawning: Sendable {
     /// Spawns a `ci-fix` worker scoped to the spec's PR branch/worktree (#30).
     ///
@@ -145,4 +191,14 @@ public protocol WorkerSpawning: Sendable {
     /// - Throws: Any error the underlying spawn/agent run surfaces; the reactor
     ///   treats a throw as "comment not handled" so it can be retried.
     func spawnWorker(for request: ConversationCommentWorkRequest) async throws -> ConversationCommentWorkResult
+
+    /// Spawns a worker to address a reviewer's submitted review (review summary)
+    /// and awaits its result.
+    ///
+    /// - Parameter request: The review context to address.
+    /// - Returns: The worker's outcome — whether it pushed code and what reply to
+    ///   post. A pure approval typically yields nothing to do.
+    /// - Throws: Any error the underlying spawn/agent run surfaces; the reactor
+    ///   treats a throw as "review not handled" so it can be retried.
+    func spawnWorker(for request: ReviewSummaryWorkRequest) async throws -> ReviewSummaryWorkResult
 }
