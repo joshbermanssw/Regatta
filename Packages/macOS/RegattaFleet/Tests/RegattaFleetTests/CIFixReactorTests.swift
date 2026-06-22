@@ -108,6 +108,52 @@ struct CIFixReactorTests {
         #expect(gate.requestCount == 1)
     }
 
+    @Test("a worker that produces no new commits stops the loop with needs attention")
+    func noProgressStopsLoop() async {
+        let spawner = StubWorkerSpawner(producesFix: false)
+        let gate = StubOutwardActionGate(verdict: .allowed)
+        // CI stays red across re-polls; without a no-progress guard the loop would
+        // respawn a worker every iteration up to the cap (the infinite-respawn bug).
+        let poller = SequencedPullRequestPoller([.checks(failing())])
+        let reactor = makeReactor(spawner: spawner, gate: gate, poller: poller, maxIterations: 5)
+
+        let outcome = await reactor.runFixLoop(for: pr)
+
+        // Stops immediately as needs-attention rather than looping to the cap.
+        #expect(outcome.needsAttention == true)
+        // The worker was attempted exactly once — no respawn / re-attempt.
+        #expect(spawner.lastHandle?.attemptCount == 1)
+        // No push was authorized (the worker produced nothing to push).
+        #expect(gate.requestCount == 0)
+    }
+
+    @Test("no progress does not respawn: ingest stops after one no-op attempt")
+    func noProgressDoesNotRespawnViaIngest() async {
+        let spawner = StubWorkerSpawner(producesFix: false)
+        let gate = StubOutwardActionGate(verdict: .allowed)
+        let poller = SequencedPullRequestPoller([.checks(failing())])
+        let reactor = makeReactor(spawner: spawner, gate: gate, poller: poller, maxIterations: 5)
+
+        let outcome = await reactor.ingest(failingState())
+
+        #expect(outcome?.needsAttention == true)
+        #expect(spawner.spawnCount == 1)
+        #expect(spawner.lastHandle?.attemptCount == 1)
+    }
+
+    @Test("a worker that produces a fix turning CI green still stops on green")
+    func progressThenGreenStopsOnGreen() async {
+        let spawner = StubWorkerSpawner(producesFix: true)
+        let gate = StubOutwardActionGate(verdict: .allowed)
+        // The fix pushes, then the re-poll shows green.
+        let poller = SequencedPullRequestPoller([.checks(green())])
+        let reactor = makeReactor(spawner: spawner, gate: gate, poller: poller, maxIterations: 5)
+
+        let outcome = await reactor.runFixLoop(for: pr)
+
+        #expect(outcome == .greenSuccess)
+    }
+
     @Test("the same failure does not spawn a duplicate loop")
     func failureTransitionIsDeduped() async {
         let spawner = StubWorkerSpawner(producesFix: false)

@@ -25,6 +25,42 @@ public struct RegattaGitDiffProbe: RegattaDiffProbing {
         return !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// Returns `true` when the worktree's `HEAD` has commits not reachable from
+    /// any other branch — i.e. the agent committed new work locally.
+    ///
+    /// `git rev-list --count HEAD --not --branches --exclude=<current>` counts the
+    /// commits unique to the checked-out branch. A worker worktree is created with
+    /// `git worktree add -b <branch>` forked from the repo's HEAD, so the agent's
+    /// commits land only on `<branch>`; this count is `> 0` exactly when the agent
+    /// produced new local commits (even though it left the worktree clean). When
+    /// `HEAD` is detached or the branch cannot be resolved, the result is `false`.
+    ///
+    /// - Parameter worktreePath: The worktree root to inspect.
+    /// - Returns: `true` if `HEAD` has at least one branch-unique commit.
+    /// - Throws: ``WorktreeError/gitCommandFailed(command:exitCode:stderr:)`` on a
+    ///   non-zero git exit, or a file-system error setting up capture.
+    public func hasNewCommits(at worktreePath: URL) async throws -> Bool {
+        let branch = try await captureGit(
+            arguments: ["-C", worktreePath.path, "rev-parse", "--abbrev-ref", "HEAD"]
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Detached HEAD ("HEAD") has no branch to exclude; treat as no new commits.
+        guard !branch.isEmpty, branch != "HEAD" else { return false }
+
+        // Count commits reachable from HEAD but from no branch other than the
+        // checked-out one. `--exclude=<glob>` applies to the *next* `--branches`,
+        // so it must precede it; placing it after silently excludes nothing.
+        let output = try await captureGit(
+            arguments: [
+                "-C", worktreePath.path,
+                "rev-list", "--count", "HEAD",
+                "--not", "--exclude=\(branch)", "--branches",
+            ]
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return (Int(output) ?? 0) > 0
+    }
+
     /// Runs a git command, captures stdout via a temp file, and returns it.
     ///
     /// Output goes to a regular file (never a `Pipe`) and stdin is `/dev/null`,

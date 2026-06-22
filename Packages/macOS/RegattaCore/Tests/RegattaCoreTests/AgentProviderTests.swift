@@ -38,9 +38,19 @@ struct AgentProviderTests {
 
         let launch = provider.makeLaunch(prompt: "fix the bug")
         #expect(launch.executableURL == URL(fileURLWithPath: "/usr/bin/env"))
-        // Includes hook/MCP isolation so workers don't inherit the user's global
-        // ~/.claude hooks (the same isolation the Brain uses).
-        #expect(launch.arguments == ["claude", "-p", "--strict-mcp-config", "--settings", "{\"disableAllHooks\":true}"])
+        // Includes `--dangerously-skip-permissions` so the headless worker can
+        // actually edit files + run git/tests (otherwise `-p` print mode emits text
+        // and exits with zero changes), plus hook/MCP isolation so workers don't
+        // inherit the user's global ~/.claude hooks (the same isolation the Brain
+        // uses).
+        #expect(launch.arguments == [
+            "claude", "-p",
+            "--dangerously-skip-permissions",
+            "--strict-mcp-config",
+            "--settings", "{\"disableAllHooks\":true}",
+        ])
+        // The headless worker must be able to act without an interactive prompt.
+        #expect(launch.arguments.contains("--dangerously-skip-permissions"))
         // The orchestrator appends the prompt as the trailing argument.
         #expect(launch.appendPrompt == true)
     }
@@ -54,7 +64,8 @@ struct AgentProviderTests {
 
         let launch = provider.makeLaunch(prompt: "fix the bug")
         #expect(launch.executableURL == URL(fileURLWithPath: "/usr/bin/env"))
-        #expect(launch.arguments == ["codex", "exec"])
+        // Includes the autonomous bypass so the headless `codex exec` worker can act.
+        #expect(launch.arguments == ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox"])
         #expect(launch.appendPrompt == true)
     }
 
@@ -67,7 +78,8 @@ struct AgentProviderTests {
 
         let launch = provider.makeLaunch(prompt: "fix the bug")
         #expect(launch.executableURL == URL(fileURLWithPath: "/usr/bin/env"))
-        #expect(launch.arguments == ["gemini", "-p"])
+        // Includes `--yolo` (auto-approve) so the headless Gemini worker can act.
+        #expect(launch.arguments == ["gemini", "--yolo", "-p"])
         #expect(launch.appendPrompt == true)
     }
 
@@ -93,7 +105,7 @@ struct AgentProviderTests {
             provider: provider
         )
         #expect(spec.providerID == .codex)
-        #expect(spec.agentLaunch.arguments == ["codex", "exec"])
+        #expect(spec.agentLaunch.arguments == ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox"])
     }
 
     @Test("a WorkerSpec defaults to the Claude Code provider when none is given")
@@ -104,6 +116,11 @@ struct AgentProviderTests {
             repoURL: URL(fileURLWithPath: "/tmp/repo")
         )
         #expect(spec.providerID == .claudeCode)
-        #expect(spec.agentLaunch.arguments == ["claude", "-p", "--strict-mcp-config", "--settings", "{\"disableAllHooks\":true}"])
+        #expect(spec.agentLaunch.arguments == [
+            "claude", "-p",
+            "--dangerously-skip-permissions",
+            "--strict-mcp-config",
+            "--settings", "{\"disableAllHooks\":true}",
+        ])
     }
 }

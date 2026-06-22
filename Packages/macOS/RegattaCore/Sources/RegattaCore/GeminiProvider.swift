@@ -17,7 +17,13 @@ public struct GeminiProvider: AgentProvider {
     public func makeLaunch(prompt: String) -> WorkerAgentLaunch {
         WorkerAgentLaunch(
             executableURL: AgentExecutable.envURL,
-            arguments: ["gemini", "-p"],
+            // `--yolo` puts the headless Gemini worker in auto-approve mode so it can
+            // edit files and run git/tests without an interactive approval prompt
+            // (which cannot be answered headlessly). The worker runs in an isolated,
+            // throwaway git worktree, so auto-approve is scoped to that tree — the
+            // autonomous-agent equivalent of Claude Code's
+            // `--dangerously-skip-permissions`.
+            arguments: ["gemini", "--yolo", "-p"],
             environment: [:],
             appendPrompt: true
         )

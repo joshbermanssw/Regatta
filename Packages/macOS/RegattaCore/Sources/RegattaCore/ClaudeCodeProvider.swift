@@ -21,11 +21,24 @@ public struct ClaudeCodeProvider: AgentProvider {
     public func makeLaunch(prompt: String) -> WorkerAgentLaunch {
         WorkerAgentLaunch(
             executableURL: AgentExecutable.envURL,
+            // `--dangerously-skip-permissions` is what makes a headless worker able to
+            // *act*: in `-p` print mode with no permission mode, `claude` cannot edit
+            // files or run git/bash (those require an interactive permission grant that
+            // cannot be answered headlessly), so without it the worker just emits text
+            // and exits with zero changes — the "runs, does nothing, exits Done" bug.
+            // The worker runs in an isolated, throwaway git worktree, so skipping
+            // permissions is scoped to that tree; this is the standard autonomous
+            // coding-agent mode.
             // `--strict-mcp-config` + `--settings {"disableAllHooks":true}` isolate the
             // worker from the user's global ~/.claude hooks and MCP servers, so a
             // spawned ci-fix / review / Fleet worker starts fast and clean (the same
             // isolation the Brain uses). OAuth/keychain auth is unaffected.
-            arguments: ["claude", "-p", "--strict-mcp-config", "--settings", "{\"disableAllHooks\":true}"],
+            arguments: [
+                "claude", "-p",
+                "--dangerously-skip-permissions",
+                "--strict-mcp-config",
+                "--settings", "{\"disableAllHooks\":true}",
+            ],
             environment: [:],
             appendPrompt: true
         )

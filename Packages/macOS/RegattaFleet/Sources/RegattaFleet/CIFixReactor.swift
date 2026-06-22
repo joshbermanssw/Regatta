@@ -179,6 +179,9 @@ public actor CIFixReactor {
         while true {
             let producedFix = await worker.attemptFix()
             if producedFix {
+                // The worker committed locally (it is prompted to commit, not push).
+                // Route the *push* of those commits through the autonomy gate so a
+                // staged PR holds it for approval and an auto PR pushes immediately.
                 let verdict = await gate.authorize(
                     .pushFix(pullRequest: pullRequest, branch: spec.branch),
                     for: pullRequest
@@ -188,6 +191,9 @@ public actor CIFixReactor {
                 }
             }
 
+            // Re-poll checks (this also refreshes ``isGreen``). A green result wins
+            // even when the worker produced nothing this iteration (e.g. an external
+            // push turned CI green) — the loop's job is done.
             let decision = await condition.evaluate(iteration: iteration)
             if decision == .stop {
                 if await condition.isGreen {
@@ -197,6 +203,17 @@ public actor CIFixReactor {
                     reason: "CI still failing after \(maxIterations) fix attempts"
                 )
             }
+
+            // No-progress guard: the worker produced no new commits and CI is not
+            // green. Continuing would respawn an identical no-op worker every
+            // iteration up to the cap (the "runs, does nothing, exits Done" loop the
+            // user saw). Stop now and flag the PR for human attention instead.
+            if !producedFix {
+                return .needsAttention(
+                    reason: "The ci-fix agent could not produce a fix"
+                )
+            }
+
             iteration += 1
         }
     }
