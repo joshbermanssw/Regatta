@@ -120,6 +120,34 @@ struct FleetTests {
         #expect(await fleet.contains(pr) == false)
     }
 
+    @Test("dismiss cascades a cancel for everything the shepherd spawned")
+    func dismissCascadesCancel() async {
+        let poller = FakePullRequestPoller()
+        let fleet = makeFleet(poller)
+
+        // Record which PRs the cascade was asked to cancel.
+        let recorder = DismissRecorder()
+        await fleet.setDismissHandler { pr in await recorder.record(pr) }
+
+        await fleet.handoff(pr)
+        await fleet.dismiss(pr)
+
+        // The cascade fired exactly once for the dismissed PR, so the composition
+        // root can cancel its ci-fix loop + in-flight workers (no orphans).
+        #expect(await recorder.cancelled == [pr])
+    }
+
+    @Test("dismissing an unknown PR does not fire the cascade")
+    func dismissUnknownPRSkipsCascade() async {
+        let fleet = makeFleet(FakePullRequestPoller())
+        let recorder = DismissRecorder()
+        await fleet.setDismissHandler { pr in await recorder.record(pr) }
+
+        // Never handed off → dismiss is a no-op, cascade must not fire.
+        await fleet.dismiss(pr)
+        #expect(await recorder.cancelled.isEmpty)
+    }
+
     @Test("a new handoff defaults to staged autonomy mode")
     func handoffDefaultsToStaged() async {
         let fleet = makeFleet(FakePullRequestPoller())
@@ -167,4 +195,10 @@ struct FleetTests {
         let first = await iterator.next()
         #expect(first?.count == 1)
     }
+}
+
+/// Records the PRs a dismiss cascade was asked to cancel, for assertions.
+private actor DismissRecorder {
+    private(set) var cancelled: [PullRequestRef] = []
+    func record(_ pr: PullRequestRef) { cancelled.append(pr) }
 }

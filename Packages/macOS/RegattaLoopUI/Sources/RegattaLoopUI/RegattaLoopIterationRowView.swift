@@ -85,6 +85,8 @@ struct RegattaLoopIterationRowView: View {
             return String(localized: "regatta.loop.iteration.badge.progressed", defaultValue: "···")
         case .failed:
             return String(localized: "regatta.loop.iteration.badge.failed", defaultValue: "X")
+        case .cancelled:
+            return String(localized: "regatta.loop.iteration.badge.cancelled", defaultValue: "⊘")
         }
     }
 
@@ -96,6 +98,8 @@ struct RegattaLoopIterationRowView: View {
             return String(localized: "regatta.loop.iteration.badge.progressed.a11y", defaultValue: "Progressed")
         case .failed:
             return String(localized: "regatta.loop.iteration.badge.failed.a11y", defaultValue: "Failed")
+        case .cancelled:
+            return String(localized: "regatta.loop.iteration.badge.cancelled.a11y", defaultValue: "Cancelled")
         }
     }
 
@@ -104,6 +108,7 @@ struct RegattaLoopIterationRowView: View {
         case .succeeded: return .green
         case .progressed: return .blue
         case .failed: return .red
+        case .cancelled: return .secondary
         }
     }
 }

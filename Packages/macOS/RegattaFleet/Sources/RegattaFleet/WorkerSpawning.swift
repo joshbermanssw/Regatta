@@ -1,5 +1,24 @@
 public import RegattaGitHub
 
+/// The result of one ci-fix worker iteration, as the loop sees it.
+///
+/// Distinguishes the three outcomes the fix loop must react to differently:
+/// - ``produced``: the worker made local commits worth pushing → push + re-poll.
+/// - ``noFix``: the worker ran but produced nothing → no-progress stop.
+/// - ``cancelled``: the worker was **cancelled or killed** (a user ✕ from the
+///   Fleet, a shepherd-dismiss cascade, or a SIGTERM/SIGKILL from cancellation)
+///   → the loop must STOP and never spawn another iteration. A user cancel means
+///   "stop", never "retry"; conflating it with ``noFix`` (which is also a stop
+///   but flags needs-attention) would mislabel a deliberate cancel.
+public enum CIFixAttemptOutcome: Sendable, Equatable {
+    /// The worker made local commits that should be pushed.
+    case produced
+    /// The worker ran but could not produce a fix this iteration.
+    case noFix
+    /// The worker was cancelled or killed — a final stop, never a retry.
+    case cancelled
+}
+
 /// A handle to a spawned `ci-fix` worker.
 ///
 /// Returned by ``WorkerSpawning/spawn(_:)`` so the reactor can later ask the
@@ -10,12 +29,13 @@ public protocol CIFixWorkerHandle: Sendable {
     /// Stable identity matching the originating ``CIFixWorkerSpec/id``.
     var id: String { get }
 
-    /// Drives one fix attempt and reports whether the worker produced changes
-    /// worth pushing.
+    /// Drives one fix attempt and reports how it concluded.
     ///
-    /// - Returns: `true` when the worker made local commits that should be
-    ///   pushed; `false` when it could not produce a fix this iteration.
-    func attemptFix() async -> Bool
+    /// - Returns: ``CIFixAttemptOutcome/produced`` when the worker made local
+    ///   commits that should be pushed; ``CIFixAttemptOutcome/noFix`` when it
+    ///   could not produce a fix; ``CIFixAttemptOutcome/cancelled`` when the
+    ///   worker was cancelled or killed (the loop must then stop, not respawn).
+    func attemptFix() async -> CIFixAttemptOutcome
 }
 
 /// A request to spawn an ephemeral worker that addresses one review thread.

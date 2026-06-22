@@ -35,6 +35,11 @@ public struct RegattaLLMJudgedLoopCondition: RegattaLoopCondition {
             return .stop(.goalReached)
         case .progressed:
             return .continue
+        case .cancelled:
+            // A cancelled/killed worker stops the loop — never a retry. The
+            // engine normally intercepts this ahead of the condition; handled
+            // here too so the contract holds regardless of call order.
+            return .stop(.cancelled)
         }
     }
 }

@@ -106,7 +106,25 @@ struct OrchestratorLoopWorker: RegattaLoopWorker {
                     : "Iteration \(index + 1) produced no new changes; stopping",
                 tokensUsed: 0
             )
-        case .failed(let reason), .blocked(let reason):
+        case .cancelled:
+            // A user cancel (Fleet ✕) or a shepherd-dismiss cascade marks the
+            // worker `.cancelled`. That is a final STOP, never "iteration done,
+            // not green → advance": report `.cancelled` so the engine terminates
+            // the loop instead of spawning the next iteration's worker.
+            return RegattaLoopOutcome(
+                kind: .cancelled,
+                summary: "Iteration \(index + 1) was cancelled",
+                tokensUsed: 0
+            )
+        case .failed(let reason):
+            // A worker killed by a termination signal (SIGTERM/SIGKILL from a
+            // cancellation) is a cancel, not a self-inflicted failure that should
+            // advance the loop. Classify it as cancelled so it stops the loop.
+            if Self.isTerminationSignalFailure(reason) {
+                return RegattaLoopOutcome(kind: .cancelled, summary: reason, tokensUsed: 0)
+            }
+            return RegattaLoopOutcome(kind: .failed, summary: reason, tokensUsed: 0)
+        case .blocked(let reason):
             return RegattaLoopOutcome(kind: .failed, summary: reason, tokensUsed: 0)
         default:
             return RegattaLoopOutcome(
@@ -115,5 +133,15 @@ struct OrchestratorLoopWorker: RegattaLoopWorker {
                 tokensUsed: 0
             )
         }
+    }
+
+    /// Whether a worker `.failed` reason describes a process killed by a
+    /// termination signal (SIGTERM/SIGKILL) rather than a self-inflicted non-zero
+    /// exit. The orchestrator formats signal kills as a large code (`128 +
+    /// signal`, e.g. 137 = SIGKILL, 143 = SIGTERM) or a negative code; both mean
+    /// "the run was killed", which a loop must treat as a cancel-stop, not a
+    /// retry-able failure.
+    static func isTerminationSignalFailure(_ reason: String) -> Bool {
+        RegattaCancellationExit.isTerminationSignalFailure(reason)
     }
 }

@@ -12,6 +12,13 @@ public enum CIFixOutcome: Sendable, Equatable {
     /// The PR is flagged for human attention with a user-facing reason.
     case needsAttention(reason: String)
 
+    /// The loop was **cancelled** — the current worker was cancelled/killed by
+    /// the user (Fleet ✕), a SIGTERM/SIGKILL, or a shepherd-dismiss cascade. The
+    /// loop stopped without spawning another iteration. Unlike ``needsAttention``
+    /// this does NOT flag the PR for attention: a cancel is a final, deliberate
+    /// stop, not a give-up-and-ask-the-human.
+    case cancelled
+
     /// Whether this outcome flags the PR as needing human attention.
     public var needsAttention: Bool {
         if case .needsAttention = self { return true }

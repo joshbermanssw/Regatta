@@ -55,6 +55,16 @@ public actor Fleet {
     /// the mode without an `await` into the gate actor. Missing key ⇒ staged.
     private var modes: [String: AutonomyMode] = [:]
 
+    /// Cascade hook run when a shepherd is dismissed, so the composition root can
+    /// cancel everything that shepherd spawned — its ci-fix loop and any in-flight
+    /// ephemeral workers — instead of leaving them running orphaned (the "dismiss
+    /// did NOT stop the loops" bug). The Fleet stays free of reactor/orchestrator
+    /// dependencies: it only invokes this closure with the dismissed PR. Wired via
+    /// ``setDismissHandler(_:)`` after the reactors are constructed (they depend on
+    /// the Fleet, so the wiring is necessarily after construction). Defaults to a
+    /// no-op so tests and the explicit-factory init need not set it.
+    private var dismissHandler: @Sendable (PullRequestRef) async -> Void = { _ in }
+
     private var continuations: [UUID: AsyncStream<[ShepherdState]>.Continuation] = [:]
 
     /// Creates a Fleet with an explicit watcher factory.
@@ -181,7 +191,20 @@ public actor Fleet {
         emit()
     }
 
-    /// Removes (and stops) the shepherd for a PR, if present.
+    /// Sets the cascade hook run on ``dismiss(_:)`` so the composition root can
+    /// cancel everything a dismissed shepherd spawned (its ci-fix loop + workers).
+    ///
+    /// Wired after the reactors are constructed (they depend on the Fleet). The
+    /// Fleet itself stays free of reactor/orchestrator types — it just invokes the
+    /// closure with the dismissed PR.
+    public func setDismissHandler(_ handler: @escaping @Sendable (PullRequestRef) async -> Void) {
+        dismissHandler = handler
+    }
+
+    /// Removes (and stops) the shepherd for a PR, if present, and cascades a
+    /// cancel to everything it spawned (its ci-fix loop and in-flight workers) via
+    /// the dismiss handler. Without the cascade, a dismissed shepherd's loop kept
+    /// polling and respawning workers orphaned (the dogfooded runaway).
     public func dismiss(_ pullRequest: PullRequestRef) async {
         guard let watcher = watchers[pullRequest.id] else { return }
         fanoutTasks[pullRequest.id]?.cancel()
@@ -190,6 +213,9 @@ public actor Fleet {
         watchers[pullRequest.id] = nil
         latest[pullRequest.id] = nil
         modes[pullRequest.id] = nil
+        // Cascade: cancel the shepherd's ci-fix loop and any workers it spawned so
+        // nothing keeps polling/spawning after the card is gone.
+        await dismissHandler(pullRequest)
         emit()
     }
 

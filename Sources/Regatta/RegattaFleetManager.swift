@@ -43,6 +43,10 @@ final class RegattaFleetManager {
     /// so the gate-routed ``GitPushActionExecutor`` pushes exactly those commits.
     private let ciFixWorktreeStore: CIFixWorktreeStore
 
+    /// Tracks which workers each shepherd (PR) currently owns, so dismissing a
+    /// shepherd cascades a cancel to its in-flight workers (and the ci-fix loop).
+    private let workerRegistry: ShepherdWorkerRegistry
+
     /// The CI-fix reactor that spawns a real `ci-fix` worker when a shepherd's
     /// checks turn red (#30), retained for the app's lifetime.
     private let ciFixReactor: CIFixReactor
@@ -101,6 +105,8 @@ final class RegattaFleetManager {
         // meaningful (Parts B + C of the worker-can-act fix).
         let ciFixWorktreeStore = CIFixWorktreeStore()
         self.ciFixWorktreeStore = ciFixWorktreeStore
+        let workerRegistry = ShepherdWorkerRegistry()
+        self.workerRegistry = workerRegistry
         let pushExecutor = GitPushActionExecutor(
             resolveWorktree: { action in await ciFixWorktreeStore.worktree(for: action.pullRequest) },
             pusher: RegattaGitWorktreePusher()
@@ -142,7 +148,8 @@ final class RegattaFleetManager {
                     (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 )
             },
-            ciFixWorktreeStore: ciFixWorktreeStore
+            ciFixWorktreeStore: ciFixWorktreeStore,
+            workerRegistry: workerRegistry
         )
         self.workerSpawner = spawner
 
@@ -202,6 +209,21 @@ final class RegattaFleetManager {
         self.reviewSummaryBridge = FleetReviewSummaryBridge(
             fleet: fleet, reactor: reviewSummaryReactor
         )
+
+        // Dismiss cascade: when a shepherd card's ✕ dismisses a PR, cancel
+        // everything that shepherd spawned so nothing keeps polling/spawning
+        // orphaned (the dogfooded runaway). This cancels the ci-fix "until green"
+        // loop and every in-flight worker the PR owns (ci-fix iteration worker +
+        // review/conversation/review-summary addressing workers).
+        Task { [fleet, ciFixReactor, orchestrator, workerRegistry] in
+            await fleet.setDismissHandler { pr in
+                await ciFixReactor.cancel(for: pr)
+                for workerID in await workerRegistry.workerIDs(for: pr) {
+                    try? await orchestrator.cancelWorker(workerID)
+                }
+                await workerRegistry.removeAll(for: pr)
+            }
+        }
 
         observeConcurrencyCap()
         startReactors()
