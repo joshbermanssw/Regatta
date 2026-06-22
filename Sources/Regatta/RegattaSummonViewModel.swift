@@ -59,6 +59,12 @@ final class RegattaSummonViewModel {
     @ObservationIgnored
     private let toasts: RegattaToastCenter
 
+    /// Supplies the active workspace tab's context so the spawn form can default its
+    /// repository to the repo the user is actually working in (rather than `/`).
+    /// `@MainActor`-isolated and invoked only from a button action, never `body`.
+    @ObservationIgnored
+    private var contextProvider: (@MainActor () -> AttachedTabContext?)?
+
     // MARK: - Init
 
     /// Creates a Summon overlay view-model.
@@ -78,6 +84,30 @@ final class RegattaSummonViewModel {
         self.orchestrator = orchestrator ?? RegattaFleetManager.shared.orchestrator
         self.spawnSpecProvider = spawnSpecProvider ?? RegattaSummonViewModel.defaultSpawnSpec
         self.toasts = toasts
+    }
+
+    // MARK: - Context wiring
+
+    /// Records the active-tab context provider used to default the spawn form's
+    /// repository. Called by the Fleet rail when it triggers a summon, so the
+    /// window-hosted overlay can reach the same context the rail sees.
+    func setContextProvider(_ provider: (@MainActor () -> AttachedTabContext?)?) {
+        self.contextProvider = provider
+    }
+
+    /// Builds a fresh ``RegattaSpawnFormViewModel`` for the spawn form, seeded with
+    /// the active tab's working directory (via ``contextProvider``) as the default
+    /// repository and spawning through the same orchestrator the overlay observes.
+    func makeSpawnFormViewModel() -> RegattaSpawnFormViewModel {
+        let directory = contextProvider?()?.currentDirectory
+        let orchestrator = self.orchestrator
+        return RegattaSpawnFormViewModel(
+            contextDirectory: directory,
+            toasts: toasts,
+            spawn: { spec in
+                Task { _ = await orchestrator.spawnWorker(spec) }
+            }
+        )
     }
 
     // MARK: - Lifecycle
@@ -120,8 +150,13 @@ final class RegattaSummonViewModel {
 
     // MARK: - Spawn intent
 
-    /// Spawns a new worker from the `+ spawn worker` tile via the orchestrator.
-    /// Emits a success toast naming the worker.
+    /// Spawns a worker directly from ``spawnSpecProvider`` (the placeholder
+    /// ``defaultSpawnSpec()``) via the orchestrator, emitting a success toast.
+    ///
+    /// This is the **last-resort fallback** path. The `+ spawn worker` tile now
+    /// opens the ``RegattaSpawnFormView`` sheet (via ``makeSpawnFormViewModel()``)
+    /// so the user picks a real repository and task; this method is retained only
+    /// for the placeholder spec and is not invoked from the tile.
     func spawnWorker() {
         let spec = spawnSpecProvider()
         Task { [weak self] in
