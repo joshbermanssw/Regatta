@@ -1,6 +1,8 @@
 import Foundation
 import Observation
 import RegattaCore
+import RegattaFleet
+import RegattaGitHub
 
 /// Drives the Summon overlay (issue #17): a grid that fills the main work area
 /// with the Fleet's live worker terminals plus a `+ spawn worker` tile, dismissed
@@ -14,10 +16,19 @@ import RegattaCore
 /// ``SummonGrid`` on each snapshot, and exposes the presentation flag + intents to
 /// the SwiftUI overlay.
 ///
+/// ## Shepherds in the grid (handed-off PRs)
+/// The overlay also shows the same handed-off PR shepherds the Fleet rail renders,
+/// so "Fleet" means the same thing in both places. The view-model observes the
+/// app-lifetime ``Fleet``'s `snapshots()` stream and projects it into ``shepherds``
+/// (value-typed ``ShepherdState`` snapshots). Dismissing a shepherd from the grid
+/// routes through the *same* ``Fleet/dismiss(_:)`` path the rail card uses, so
+/// there is one mutation path (shared-behavior policy).
+///
 /// ## Snapshot-boundary rule (CLAUDE.md)
 /// The overlay grid feeds `ForEach` from ``grid``'s value-typed ``SummonTile``
-/// array. No orchestrator/actor reference crosses into the grid cells; cells get
-/// `Worker` value snapshots plus closures.
+/// array and ``shepherds``' value-typed ``ShepherdState`` array. No
+/// orchestrator/`Fleet`/actor reference crosses into the grid cells; cells get
+/// `Worker` / `ShepherdState` value snapshots plus closures.
 ///
 /// ## Live-surface seam (#14/#16)
 /// A worker's live terminal surface is resolved from its pane handle, which the
@@ -34,6 +45,11 @@ final class RegattaSummonViewModel {
     /// The current overlay grid, rebuilt from each Fleet snapshot.
     private(set) var grid: SummonGrid = SummonGrid(workers: [])
 
+    /// The handed-off PR shepherds, projected from the app-lifetime ``Fleet``'s
+    /// snapshot stream. Rendered as the overlay's Shepherds section. Value-typed so
+    /// it crosses the grid `ForEach` boundary safely (snapshot-boundary rule).
+    private(set) var shepherds: [ShepherdState] = []
+
     /// Whether the overlay is filling the main work area.
     var isPresented: Bool { presentation.isPresented }
 
@@ -47,6 +63,12 @@ final class RegattaSummonViewModel {
     @ObservationIgnored
     private let orchestrator: RegattaOrchestrator
 
+    /// The app-lifetime ``Fleet`` that owns persistent PR shepherds. Observed for
+    /// shepherd snapshots and used as the single dismiss path. `@ObservationIgnored`
+    /// — an internal actor handle, not UI-observable.
+    @ObservationIgnored
+    private let fleet: Fleet
+
     /// Builds the default ``WorkerSpec`` used by the `+ spawn worker` tile.
     @ObservationIgnored
     private let spawnSpecProvider: @MainActor () -> WorkerSpec
@@ -54,6 +76,10 @@ final class RegattaSummonViewModel {
     /// The task consuming the orchestrator's snapshot stream.
     @ObservationIgnored
     private var observeTask: Task<Void, Never>?
+
+    /// The task consuming the Fleet's shepherd snapshot stream.
+    @ObservationIgnored
+    private var shepherdTask: Task<Void, Never>?
 
     /// The toast center for spawn/cancel/remove feedback.
     @ObservationIgnored
@@ -72,16 +98,21 @@ final class RegattaSummonViewModel {
     /// - Parameters:
     ///   - orchestrator: The orchestrator to observe and spawn against. Defaults
     ///     to the app-lifetime instance from ``RegattaFleetManager``.
+    ///   - fleet: The ``Fleet`` whose handed-off PR shepherds the overlay shows
+    ///     and dismisses. Defaults to the app-lifetime instance from
+    ///     ``RegattaFleetManager``.
     ///   - spawnSpecProvider: Builds the ``WorkerSpec`` for the spawn tile.
     ///     Defaults to ``RegattaSummonViewModel/defaultSpawnSpec()``.
     ///   - toasts: The toast center for action feedback. Defaults to the shared
     ///     app-lifetime instance.
     init(
         orchestrator: RegattaOrchestrator? = nil,
+        fleet: Fleet? = nil,
         spawnSpecProvider: (@MainActor () -> WorkerSpec)? = nil,
         toasts: RegattaToastCenter = .shared
     ) {
         self.orchestrator = orchestrator ?? RegattaFleetManager.shared.orchestrator
+        self.fleet = fleet ?? RegattaFleetManager.shared.fleet
         self.spawnSpecProvider = spawnSpecProvider ?? RegattaSummonViewModel.defaultSpawnSpec
         self.toasts = toasts
     }
@@ -112,23 +143,37 @@ final class RegattaSummonViewModel {
 
     // MARK: - Lifecycle
 
-    /// Subscribes to the orchestrator's Fleet snapshots and rebuilds ``grid`` on
-    /// each. Safe to call repeatedly; only the first call starts a task.
+    /// Subscribes to the orchestrator's worker snapshots (rebuilding ``grid``) and
+    /// the Fleet's shepherd snapshots (updating ``shepherds``). Safe to call
+    /// repeatedly; each stream is only subscribed once.
     func startObserving() {
-        guard observeTask == nil else { return }
-        observeTask = Task { [weak self] in
-            guard let self else { return }
-            for await snapshot in await self.orchestrator.updates() {
-                if Task.isCancelled { break }
-                self.grid = SummonGrid(workers: snapshot)
+        if observeTask == nil {
+            observeTask = Task { [weak self] in
+                guard let self else { return }
+                for await snapshot in await self.orchestrator.updates() {
+                    if Task.isCancelled { break }
+                    self.grid = SummonGrid(workers: snapshot)
+                }
+            }
+        }
+        if shepherdTask == nil {
+            shepherdTask = Task { [weak self] in
+                guard let self else { return }
+                let stream = await self.fleet.snapshots()
+                for await snapshot in stream {
+                    if Task.isCancelled { break }
+                    self.shepherds = snapshot
+                }
             }
         }
     }
 
-    /// Cancels the snapshot observation task. Idempotent.
+    /// Cancels both observation tasks. Idempotent.
     func stopObserving() {
         observeTask?.cancel()
         observeTask = nil
+        shepherdTask?.cancel()
+        shepherdTask = nil
     }
 
     // MARK: - Presentation intents
@@ -198,6 +243,32 @@ final class RegattaSummonViewModel {
             await self.orchestrator.removeWorker(id)
             self.toasts.info(
                 String(localized: "regatta.toast.worker.removed.title", defaultValue: "Worker removed")
+            )
+        }
+    }
+
+    // MARK: - Shepherd intent
+
+    /// Dismisses a handed-off PR shepherd shown in the overlay's Shepherds section.
+    ///
+    /// Routes through the **same** ``Fleet/dismiss(_:)`` path the Fleet rail card
+    /// uses, so the grid and the rail share one mutation path (shared-behavior
+    /// policy). Emits a toast naming the PR. The Fleet's snapshot stream then
+    /// removes the shepherd from ``shepherds`` authoritatively.
+    ///
+    /// - Parameter pullRequest: The watched PR whose shepherd to dismiss.
+    func dismissShepherd(_ pullRequest: PullRequestRef) {
+        Task { [weak self] in
+            guard let self else { return }
+            await self.fleet.dismiss(pullRequest)
+            self.toasts.info(
+                String.localizedStringWithFormat(
+                    String(
+                        localized: "fleet.toast.dismissed.title",
+                        defaultValue: "Dismissed shepherd for PR #%lld"
+                    ),
+                    pullRequest.number
+                )
             )
         }
     }
