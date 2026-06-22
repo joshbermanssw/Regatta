@@ -251,13 +251,14 @@ struct FleetSectionView: View {
     // MARK: - Actions
 
     /// Resolves the active tab's PR and hands it off. Called only from a button.
+    ///
+    /// Always routes through the view-model's shared handoff path, which emits a
+    /// toast for every outcome (success / no-PR / not-authed / error) — so the
+    /// action is never a silent no-op — and falls back to a `gh` branch→PR lookup
+    /// when cmux's own `workspace.pullRequest` detection is `nil`.
     private func handoffActiveTab() {
-        guard
-            let ctx = contextProvider?(),
-            let pr = ctx.pullRequest,
-            let ref = PullRequestRef.parse(label: pr.label, number: pr.number)
-        else { return }
-        viewModel.handoff(ref)
+        let context = contextProvider?()
+        viewModel.handoffActiveTab(context: context)
     }
 
     private func dismiss(_ ref: PullRequestRef) { viewModel.dismiss(ref) }

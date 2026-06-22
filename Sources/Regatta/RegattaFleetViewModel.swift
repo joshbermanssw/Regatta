@@ -61,6 +61,10 @@ final class RegattaFleetViewModel {
     @ObservationIgnored
     private let fleet: Fleet
 
+    /// The toast center every action emits success/error feedback into.
+    @ObservationIgnored
+    private let toasts: RegattaToastCenter
+
     @ObservationIgnored
     private var workerTask: Task<Void, Never>?
     @ObservationIgnored
@@ -77,9 +81,16 @@ final class RegattaFleetViewModel {
     ///     instance from ``RegattaFleetManager``.
     ///   - fleet: The Fleet to observe and hand PRs off to. Defaults to the
     ///     app-lifetime instance from ``RegattaFleetManager``.
-    init(orchestrator: RegattaOrchestrator? = nil, fleet: Fleet? = nil) {
+    ///   - toasts: The toast center for action feedback. Defaults to the shared
+    ///     app-lifetime instance.
+    init(
+        orchestrator: RegattaOrchestrator? = nil,
+        fleet: Fleet? = nil,
+        toasts: RegattaToastCenter = .shared
+    ) {
         self.orchestrator = orchestrator ?? RegattaFleetManager.shared.orchestrator
         self.fleet = fleet ?? RegattaFleetManager.shared.fleet
+        self.toasts = toasts
     }
 
     // MARK: - Lifecycle
@@ -134,35 +145,158 @@ final class RegattaFleetViewModel {
     // MARK: - Worker actions
 
     /// Requests a new worker from the orchestrator (the brain→Fleet spawn path).
+    /// Emits a success toast naming the worker.
     @discardableResult
     func spawnWorker(_ spec: WorkerSpec) async -> UUID {
-        await orchestrator.spawnWorker(spec)
+        let id = await orchestrator.spawnWorker(spec)
+        toasts.success(
+            String(localized: "regatta.toast.worker.spawned.title", defaultValue: "Worker spawned"),
+            spec.name
+        )
+        return id
     }
 
-    /// Cancels a worker from the Fleet list.
+    /// Cancels a worker from the Fleet list. Emits a toast on success/failure.
     func cancelWorker(_ id: UUID) {
-        Task { try? await orchestrator.cancelWorker(id) }
+        let name = workers.first { $0.id == id }?.name
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.orchestrator.cancelWorker(id)
+                self.toasts.info(
+                    String(localized: "regatta.toast.worker.cancelled.title", defaultValue: "Worker cancelled"),
+                    name
+                )
+            } catch {
+                self.toasts.error(
+                    String(localized: "regatta.toast.worker.cancelFailed.title", defaultValue: "Couldn't cancel worker"),
+                    name
+                )
+            }
+        }
     }
 
     // MARK: - Shepherd actions
 
-    /// Hands a pull request off to the Fleet, creating a persistent shepherd and
-    /// starting its poll loop. Idempotent on PR identity.
+    /// Resolves the active workspace context to a PR and hands it off, always
+    /// emitting a toast so the action is never a silent no-op (the handoff
+    /// root-cause fix). Uses the `gh` branch→PR fallback when cmux's own PR
+    /// detection is `nil`.
+    ///
+    /// This is the single shared handoff path; every entrypoint (the rail button
+    /// today, plus any future command/menu) calls it with the same context closure.
+    ///
+    /// - Parameters:
+    ///   - context: The active workspace context snapshot, or `nil`.
+    ///   - resolver: The PR resolver (defaults to the production resolver).
+    func handoffActiveTab(
+        context: AttachedTabContext?,
+        resolver: RegattaHandoffResolver = RegattaHandoffResolver()
+    ) {
+        Task { [weak self] in
+            guard let self else { return }
+            let resolution = await resolver.resolve(context: context)
+            switch resolution {
+            case .resolved(let ref):
+                let isDuplicate = self.shepherds.contains { $0.pullRequest == ref }
+                await self.fleet.handoff(ref)
+                if isDuplicate {
+                    self.toasts.info(
+                        String.localizedStringWithFormat(
+                            String(localized: "fleet.handoff.toast.duplicate.title", defaultValue: "Already shepherding PR #%lld"),
+                            ref.number
+                        )
+                    )
+                } else {
+                    self.toasts.success(
+                        String.localizedStringWithFormat(
+                            String(localized: "fleet.handoff.toast.success.title", defaultValue: "Handed PR #%lld to Regatta"),
+                            ref.number
+                        ),
+                        String(localized: "fleet.handoff.toast.success.message", defaultValue: "Shepherd watching CI + reviews")
+                    )
+                }
+            case .noContext:
+                self.toasts.error(
+                    String(localized: "fleet.handoff.toast.noContext.title", defaultValue: "No workspace selected"),
+                    String(localized: "fleet.handoff.toast.noContext.message", defaultValue: "Open a git workspace to hand its PR off")
+                )
+            case .noPullRequest(let branch):
+                self.toasts.error(
+                    String(localized: "fleet.handoff.toast.noPR.title", defaultValue: "No pull request found"),
+                    Self.noPullRequestMessage(branch: branch)
+                )
+            case .authFailure:
+                self.toasts.error(
+                    String(localized: "fleet.handoff.toast.auth.title", defaultValue: "GitHub CLI not authenticated"),
+                    String(localized: "fleet.handoff.toast.auth.message", defaultValue: "Run gh auth login, then try again")
+                )
+            case .failure(let detail):
+                self.toasts.error(
+                    String(localized: "fleet.handoff.toast.failure.title", defaultValue: "Couldn't resolve the pull request"),
+                    detail
+                )
+            }
+        }
+    }
+
+    /// Hands an already-resolved pull request off to the Fleet, creating a
+    /// persistent shepherd and starting its poll loop. Idempotent on PR identity.
+    /// Used by session restore and tests; UI handoff goes through
+    /// ``handoffActiveTab(context:resolver:)``.
     func handoff(_ pullRequest: PullRequestRef) {
         Task { await fleet.handoff(pullRequest) }
     }
 
+    /// The detail line for the no-PR error, naming the branch when known.
+    private static func noPullRequestMessage(branch: String?) -> String {
+        if let branch, !branch.isEmpty {
+            return String.localizedStringWithFormat(
+                String(localized: "fleet.handoff.toast.noPR.branch", defaultValue: "%@ has no open PR detected"),
+                branch
+            )
+        }
+        return String(localized: "fleet.handoff.toast.noPR.generic", defaultValue: "This branch has no open PR detected")
+    }
+
     /// Removes the shepherd for the given PR, if present, and clears its local
-    /// card state (activity log + fix loop).
+    /// card state (activity log + fix loop). Emits a dismissal toast.
     func dismiss(_ pullRequest: PullRequestRef) {
         activityLog[pullRequest.id] = nil
         fixLoops[pullRequest.id] = nil
         Task { await fleet.dismiss(pullRequest) }
+        toasts.info(
+            String.localizedStringWithFormat(
+                String(localized: "fleet.toast.dismissed.title", defaultValue: "Dismissed shepherd for PR #%lld"),
+                pullRequest.number
+            )
+        )
     }
 
-    /// Sets a PR's autonomy mode. Per-PR; changeable at any time.
+    /// Sets a PR's autonomy mode. Per-PR; changeable at any time. Emits a toast
+    /// naming the new mode.
     func setAutonomyMode(_ mode: AutonomyMode, for pullRequest: PullRequestRef) {
         Task { await fleet.setAutonomyMode(mode, for: pullRequest) }
+        toasts.info(
+            String.localizedStringWithFormat(
+                String(localized: "fleet.toast.autonomy.title", defaultValue: "Autonomy: %@"),
+                Self.autonomyLabel(mode)
+            ),
+            String.localizedStringWithFormat(
+                String(localized: "fleet.toast.autonomy.message", defaultValue: "PR #%lld"),
+                pullRequest.number
+            )
+        )
+    }
+
+    /// A localized label for an autonomy mode, used in toasts.
+    private static func autonomyLabel(_ mode: AutonomyMode) -> String {
+        switch mode {
+        case .staged:
+            return String(localized: "fleet.toast.autonomy.staged", defaultValue: "Staged")
+        case .auto:
+            return String(localized: "fleet.toast.autonomy.auto", defaultValue: "Autonomous")
+        }
     }
 
     /// Approves a pending action (executes it through the gate's executor) and
@@ -181,6 +315,17 @@ final class RegattaFleetViewModel {
                 ShepherdActivityEntry(kind: self.activityKind(for: action.kind), summary: summary),
                 for: action.pullRequest
             )
+            if succeeded {
+                self.toasts.success(
+                    String(localized: "fleet.toast.approved.title", defaultValue: "Action approved"),
+                    action.summary
+                )
+            } else {
+                self.toasts.error(
+                    String(localized: "fleet.toast.approveFailed.title", defaultValue: "Action failed"),
+                    action.summary
+                )
+            }
         }
     }
 
@@ -197,6 +342,10 @@ final class RegattaFleetViewModel {
                     summary: String(format: String(localized: "fleet.activity.rejected", defaultValue: "Rejected: %@"), action.summary)
                 ),
                 for: action.pullRequest
+            )
+            self.toasts.info(
+                String(localized: "fleet.toast.rejected.title", defaultValue: "Action rejected"),
+                action.summary
             )
         }
     }
