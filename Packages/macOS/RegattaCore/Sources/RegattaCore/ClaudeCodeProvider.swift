@@ -16,7 +16,11 @@ public struct ClaudeCodeProvider: AgentProvider {
     public func makeLaunch(prompt: String) -> WorkerAgentLaunch {
         WorkerAgentLaunch(
             executableURL: AgentExecutable.envURL,
-            arguments: ["claude", "-p"],
+            // `--strict-mcp-config` + `--settings {"disableAllHooks":true}` isolate the
+            // worker from the user's global ~/.claude hooks and MCP servers, so a
+            // spawned ci-fix / review / Fleet worker starts fast and clean (the same
+            // isolation the Brain uses). OAuth/keychain auth is unaffected.
+            arguments: ["claude", "-p", "--strict-mcp-config", "--settings", "{\"disableAllHooks\":true}"],
             environment: [:],
             appendPrompt: true
         )
