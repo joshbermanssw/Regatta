@@ -149,10 +149,13 @@ public actor RegattaLoopEngine {
         status = .running
 
         while true {
-            // A cancel (user ✕, shepherd dismiss cascade, or an enclosing
-            // cancelled Task) is a final stop, never a retry: terminate as
-            // cancelled before starting another iteration.
-            if cancelRequested || Task.isCancelled {
+            // A cancel (user ✕ or shepherd dismiss cascade, via requestCancel())
+            // is a final stop, never a retry: terminate as cancelled before
+            // starting another iteration. Note we deliberately do NOT treat an
+            // enclosing `Task.isCancelled` as a loop cancel — structured-task
+            // cancellation is orthogonal to the user's "stop this loop" intent and
+            // would spuriously abort a loop whose caller's task was cancelled.
+            if cancelRequested {
                 finish(.stopped(.cancelled))
                 break
             }

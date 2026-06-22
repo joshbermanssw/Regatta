@@ -578,9 +578,13 @@ struct OrchestratorCIFixWorkerHandle: CIFixWorkerHandle {
 /// all of those as a termination-signal kill.
 enum RegattaCancellationExit {
 
-    /// The bare signal numbers that mean "the run was killed", not "it exited
-    /// non-zero on purpose": SIGHUP, SIGINT, SIGQUIT, SIGKILL, SIGTERM.
-    private static let killSignals: Set<Int> = [1, 2, 3, 9, 15]
+    /// The signal numbers a cancellation actually sends that we treat as a kill:
+    /// SIGKILL (9) and SIGTERM (15). Deliberately limited to these two — lower
+    /// signal numbers like SIGHUP(1)/SIGINT(2)/SIGQUIT(3) collide with ordinary
+    /// non-zero exit codes (exit 1 and 2 are everyday failures, not kills), so
+    /// treating a bare 1/2/3 as a kill would misclassify a real failed iteration
+    /// as a cancel. 9/15 (and their 128+ shell forms 137/143) are unambiguous.
+    private static let killSignals: Set<Int> = [9, 15]
 
     /// Whether `reason` (a worker `.failed` reason string) describes a process
     /// killed by a termination signal, which a loop must treat as a cancel-stop.
