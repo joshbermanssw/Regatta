@@ -41,6 +41,20 @@ public protocol PullRequestWriting: Sendable {
     /// - Throws: ``GitHubCommandError`` when the underlying `gh` invocation
     ///   fails or its output cannot be parsed.
     func resolveReviewThread(threadID: String) async throws
+
+    /// Posts a reply as a top-level conversation comment on a pull request.
+    ///
+    /// Used by the conversation-comment reactor to answer a reviewer who left a
+    /// general PR comment. Like the review-thread writes, the call reaching a
+    /// conformer is one the autonomy gate has already authorised.
+    ///
+    /// - Parameters:
+    ///   - owner: The repository owner.
+    ///   - repo: The repository name.
+    ///   - prNumber: The pull-request number.
+    ///   - body: The markdown body of the comment.
+    /// - Throws: ``GitHubCommandError`` when the underlying `gh` invocation fails.
+    func postConversationComment(owner: String, repo: String, prNumber: Int, body: String) async throws
 }
 
 /// ``GitHubPoller`` satisfies ``PullRequestWriting`` directly — its

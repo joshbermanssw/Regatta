@@ -5,17 +5,24 @@ import RegattaGitHub
 // `StubWorkerSpawner` (the unified ci-fix + review-thread spawn stub) lives in
 // `StubWorkerSpawner.swift`.
 
-/// A stub ``PullRequestWriting`` that records reply/resolve calls.
+/// A stub ``PullRequestWriting`` that records reply/resolve/comment calls.
 final class StubPullRequestWriter: PullRequestWriting, @unchecked Sendable {
     private let lock = NSLock()
     private var _replies: [(threadID: String, body: String)] = []
     private var _resolved: [String] = []
+    private var _conversationComments: [(prNumber: Int, body: String)] = []
     private let failResolve: Bool
+    private let failConversationComment: Bool
 
-    init(failResolve: Bool = false) { self.failResolve = failResolve }
+    init(failResolve: Bool = false, failConversationComment: Bool = false) {
+        self.failResolve = failResolve
+        self.failConversationComment = failConversationComment
+    }
 
     var replies: [(threadID: String, body: String)] { lock.withLock { _replies } }
     var resolvedThreadIDs: [String] { lock.withLock { _resolved } }
+    /// Every conversation comment posted, in order.
+    var conversationComments: [(prNumber: Int, body: String)] { lock.withLock { _conversationComments } }
 
     func replyToReviewThread(threadID: String, body: String) async throws {
         lock.withLock { _replies.append((threadID, body)) }
@@ -24,6 +31,11 @@ final class StubPullRequestWriter: PullRequestWriting, @unchecked Sendable {
     func resolveReviewThread(threadID: String) async throws {
         if failResolve { throw GitHubCommandError.timedOut }
         lock.withLock { _resolved.append(threadID) }
+    }
+
+    func postConversationComment(owner: String, repo: String, prNumber: Int, body: String) async throws {
+        if failConversationComment { throw GitHubCommandError.timedOut }
+        lock.withLock { _conversationComments.append((prNumber, body)) }
     }
 }
 

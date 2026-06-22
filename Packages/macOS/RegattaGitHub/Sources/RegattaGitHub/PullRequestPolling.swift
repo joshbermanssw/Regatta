@@ -32,6 +32,31 @@ public protocol PullRequestPolling: Sendable {
     /// - Returns: An array of ``ReviewThread`` values, empty when the PR has none.
     /// - Throws: ``GitHubCommandError`` when the fetch fails or cannot be parsed.
     func fetchReviewThreads(owner: String, repo: String, prNumber: Int) async throws -> [ReviewThread]
+
+    /// Fetches the top-level conversation (issue) comments for a pull request.
+    ///
+    /// These are the comments posted in the PR's main conversation timeline, as
+    /// opposed to inline code-review comments. They drive the conversation-comment
+    /// reactor (ARMADA-style "comment on the PR and a worker addresses it").
+    ///
+    /// - Parameters:
+    ///   - owner: The repository owner.
+    ///   - repo: The repository name.
+    ///   - prNumber: The pull-request number.
+    /// - Returns: An array of ``PRConversationComment`` values, empty when the PR
+    ///   has none.
+    /// - Throws: ``GitHubCommandError`` when the fetch fails or cannot be parsed.
+    func fetchConversationComments(owner: String, repo: String, prNumber: Int) async throws -> [PRConversationComment]
+
+    /// The login of the currently authenticated `gh` user.
+    ///
+    /// The conversation-comment reactor uses this to skip comments the shepherd
+    /// itself authored, so it never reacts to its own replies (loop prevention).
+    /// Conformers should cache the value; it does not change while the app runs.
+    ///
+    /// - Returns: The authenticated user's login.
+    /// - Throws: ``GitHubCommandError`` when the lookup fails.
+    func currentUserLogin() async throws -> String
 }
 
 /// ``GitHubPoller`` satisfies ``PullRequestPolling`` directly — its existing

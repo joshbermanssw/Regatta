@@ -55,6 +55,20 @@ extension AutonomyGate: OutwardActionGate {
                 summary: "Resolve review thread \(threadID)",
                 payload: ActionPayload(fields: ["threadID": threadID])
             )
+        case let .pushConversationChange(commentID):
+            pending = PendingAction(
+                pullRequest: pullRequest,
+                kind: .push,
+                summary: "Push code change for comment \(commentID)",
+                payload: ActionPayload(fields: ["commentID": commentID])
+            )
+        case let .replyToConversation(commentID, body):
+            pending = PendingAction(
+                pullRequest: pullRequest,
+                kind: .reply,
+                summary: "Reply to conversation comment \(commentID)",
+                payload: ActionPayload(fields: ["commentID": commentID, "body": body])
+            )
         }
         switch await submit(pending) {
         case .executed:

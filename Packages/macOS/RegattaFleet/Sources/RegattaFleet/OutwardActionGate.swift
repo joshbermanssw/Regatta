@@ -27,6 +27,17 @@ public enum OutwardAction: Sendable, Equatable {
     /// - Parameter threadID: The GitHub node ID of the thread the change
     ///   addresses.
     case pushCodeChange(threadID: String)
+
+    /// Post a reply to a top-level PR conversation comment.
+    /// - Parameters:
+    ///   - commentID: The id of the conversation comment being replied to.
+    ///   - body: The markdown reply body.
+    case replyToConversation(commentID: String, body: String)
+
+    /// Push a code change addressing a top-level PR conversation comment.
+    /// - Parameter commentID: The id of the conversation comment the change
+    ///   addresses.
+    case pushConversationChange(commentID: String)
 }
 
 /// The verdict the gate returns for a requested outward action.

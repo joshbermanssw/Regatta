@@ -117,6 +117,49 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
         return ReviewThreadWorkResult(pushedCodeChange: false, replyBody: nil, shouldResolve: true)
     }
 
+    func spawnWorker(for request: ConversationCommentWorkRequest) async throws -> ConversationCommentWorkResult {
+        guard let repoURL = repoURLResolver(request.pullRequest) else {
+            // No local checkout to run against; report "nothing done" so the
+            // reactor leaves the comment open for a later retry.
+            return ConversationCommentWorkResult(pushedCodeChange: false, replyBody: nil)
+        }
+
+        let prompt = Self.conversationCommentPrompt(for: request)
+        let workerSpec = WorkerSpec(
+            name: "Address comment \(request.comment.id)",
+            prompt: prompt,
+            repoURL: repoURL,
+            provider: provider
+        )
+        let id = await orchestrator.spawnWorker(workerSpec)
+        let terminal = await orchestrator.awaitTerminal(id)
+
+        guard terminal?.status == .done else {
+            // Crash / block / cancel: not handled, retry next poll.
+            return ConversationCommentWorkResult(pushedCodeChange: false, replyBody: nil)
+        }
+
+        let pushed = await producedChanges(workerID: id)
+        if pushed {
+            return ConversationCommentWorkResult(
+                pushedCodeChange: true,
+                replyBody: String(
+                    localized: "regatta.conversationComment.reply",
+                    defaultValue: "Addressed in a follow-up commit."
+                )
+            )
+        }
+        // The agent finished cleanly but produced no code change — acknowledge
+        // the comment with a short reply so the author knows it was seen.
+        return ConversationCommentWorkResult(
+            pushedCodeChange: false,
+            replyBody: String(
+                localized: "regatta.conversationComment.acknowledged",
+                defaultValue: "Thanks — looked into this; no code change was needed."
+            )
+        )
+    }
+
     // MARK: - Helpers
 
     /// Whether the worker's worktree has uncommitted changes (its work product).
@@ -135,6 +178,20 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
         \(comment)
 
         Address the comment: make the code change it asks for, commit it, and push.
+        """
+    }
+
+    /// Builds the addressing prompt from a conversation comment's body.
+    private static func conversationCommentPrompt(for request: ConversationCommentWorkRequest) -> String {
+        """
+        Someone left this comment on the conversation of PR \
+        \(request.pullRequest.repoSlug)#\(request.pullRequest.number) \
+        (by @\(request.comment.author)):
+
+        \(request.comment.body)
+
+        Address the comment: if it asks for a code change, make it, commit it, and \
+        push. If it is a question, investigate and prepare a concise answer.
         """
     }
 }

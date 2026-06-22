@@ -44,6 +44,9 @@ struct ShepherdCard: View {
             if !model.threadRows.isEmpty {
                 threadsSection
             }
+            if !model.conversationRows.isEmpty {
+                conversationSection
+            }
             if !model.activity.isEmpty {
                 activitySection
             }
@@ -129,13 +132,22 @@ struct ShepherdCard: View {
                 reason
             )
         case .watching:
+            var parts: [String] = [ciLabel]
             let open = model.openThreadCount
-            guard open > 0 else { return ciLabel }
-            let threads = String(
-                format: String(localized: "fleet.shepherd.threads", defaultValue: "%lld open threads"),
-                open
-            )
-            return "\(ciLabel) · \(threads)"
+            if open > 0 {
+                parts.append(String(
+                    format: String(localized: "fleet.shepherd.threads", defaultValue: "%lld open threads"),
+                    open
+                ))
+            }
+            let comments = model.conversationCount
+            if comments > 0 {
+                parts.append(String(
+                    format: String(localized: "fleet.shepherd.comments", defaultValue: "%lld comments"),
+                    comments
+                ))
+            }
+            return parts.joined(separator: " · ")
         }
     }
 
@@ -399,6 +411,76 @@ struct ShepherdCard: View {
                 defaultValue: "Review thread on %1$@, %2$@"
             ),
             row.path, threadStatusText(row.status)
+        )
+    }
+
+    // MARK: - Conversation comments
+
+    /// The PR conversation-comment section. Each row shows the author and comment
+    /// text; the shepherd's own replies are shown muted (and are never reacted to,
+    /// per the loop guard).
+    private var conversationSection: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            sectionLabel(conversationSectionTitle)
+            ForEach(model.conversationRows) { row in
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: row.isSelf ? "arrowshape.turn.up.left" : "bubble.left")
+                        .font(.system(size: 9))
+                        .foregroundStyle(row.isSelf ? .tertiary : .secondary)
+                        .frame(width: 12)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(row.author.isEmpty ? unknownAuthor : row.author)
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(row.isSelf ? .tertiary : .secondary)
+                            .lineLimit(1)
+                        Text(row.body)
+                            .font(.system(size: 10))
+                            .foregroundStyle(row.isSelf ? .secondary : .primary)
+                            .lineLimit(2)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(conversationAccessibility(row))
+            }
+        }
+    }
+
+    /// The conversation section header, including the actionable-comment count.
+    private var conversationSectionTitle: String {
+        let count = model.conversationCount
+        guard count > 0 else {
+            return String(localized: "fleet.section.conversation", defaultValue: "Conversation")
+        }
+        return String(
+            format: String(
+                localized: "fleet.section.conversation.count",
+                defaultValue: "Conversation (%lld)"
+            ),
+            count
+        )
+    }
+
+    private var unknownAuthor: String {
+        String(localized: "fleet.conversation.unknownAuthor", defaultValue: "Someone")
+    }
+
+    private func conversationAccessibility(_ row: ShepherdCardModel.ConversationRow) -> String {
+        if row.isSelf {
+            return String(
+                format: String(
+                    localized: "fleet.conversation.a11y.self",
+                    defaultValue: "Your reply: %@"
+                ),
+                row.body
+            )
+        }
+        return String(
+            format: String(
+                localized: "fleet.conversation.a11y",
+                defaultValue: "Comment from %1$@: %2$@"
+            ),
+            row.author.isEmpty ? unknownAuthor : row.author, row.body
         )
     }
 

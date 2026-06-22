@@ -87,6 +87,21 @@ struct ShepherdCardModel: Identifiable, Equatable, Sendable {
         case addressing
     }
 
+    // MARK: - Conversation comments
+
+    /// One top-level PR conversation-comment row in the card.
+    struct ConversationRow: Identifiable, Equatable, Sendable {
+        /// Stable identity (the comment id).
+        let id: String
+        /// The login of the comment author.
+        let author: String
+        /// The comment body, used as the row's text.
+        let body: String
+        /// Whether the shepherd itself authored this comment (its own reply). Such
+        /// rows are shown muted and are never reacted to (loop guard).
+        let isSelf: Bool
+    }
+
     // MARK: - Stored projection
 
     /// The underlying shepherd snapshot, retained for the header (title, phase).
@@ -100,6 +115,9 @@ struct ShepherdCardModel: Identifiable, Equatable, Sendable {
 
     /// The per-thread rows (open and recently-actioned), in input order.
     let threadRows: [ThreadRow]
+
+    /// The per-conversation-comment rows, in input order.
+    let conversationRows: [ConversationRow]
 
     /// The activity log, newest first.
     let activity: [ShepherdActivityEntry]
@@ -115,6 +133,12 @@ struct ShepherdCardModel: Identifiable, Equatable, Sendable {
     /// The number of open (unresolved, non-outdated) threads.
     var openThreadCount: Int {
         threadRows.filter { $0.status != .resolved }.count
+    }
+
+    /// The number of conversation comments authored by people other than the
+    /// shepherd itself (the ones the reactor acts on).
+    var conversationCount: Int {
+        conversationRows.filter { !$0.isSelf }.count
     }
 
     // MARK: - Projection
@@ -145,6 +169,23 @@ struct ShepherdCardModel: Identifiable, Equatable, Sendable {
         self.threadRows = state.reviewThreads.map {
             Self.threadRow(from: $0, shepherdLogin: shepherdLogin)
         }
+        self.conversationRows = state.conversationComments.map {
+            Self.conversationRow(from: $0, shepherdLogin: shepherdLogin)
+        }
+    }
+
+    /// Maps a raw ``PRConversationComment`` into a card conversation row.
+    private static func conversationRow(
+        from comment: PRConversationComment,
+        shepherdLogin: String?
+    ) -> ConversationRow {
+        let isSelf = shepherdLogin.map { !$0.isEmpty && comment.author == $0 } ?? false
+        return ConversationRow(
+            id: comment.id,
+            author: comment.author,
+            body: comment.body,
+            isSelf: isSelf
+        )
     }
 
     /// Computes the coarse CI rollup from a check summary.

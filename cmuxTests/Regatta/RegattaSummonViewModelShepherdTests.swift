@@ -31,6 +31,8 @@ struct RegattaSummonViewModelShepherdTests {
     private struct NoopPoller: PullRequestPolling {
         func fetchChecks(owner: String, repo: String, prNumber: Int) async throws -> [PRCheck] { [] }
         func fetchReviewThreads(owner: String, repo: String, prNumber: Int) async throws -> [ReviewThread] { [] }
+        func fetchConversationComments(owner: String, repo: String, prNumber: Int) async throws -> [PRConversationComment] { [] }
+        func currentUserLogin() async throws -> String { "shepherd-bot" }
     }
 
     private func ref(_ number: Int = 1) -> PullRequestRef {

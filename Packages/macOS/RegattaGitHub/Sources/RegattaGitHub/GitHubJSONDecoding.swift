@@ -127,6 +127,49 @@ struct ReviewCommentAuthor: Decodable {
     let login: String
 }
 
+// MARK: - Conversation (issue) comment decoding
+
+/// One node from `gh api repos/{owner}/{repo}/issues/{number}/comments`.
+///
+/// A PR is an issue for the comments endpoint, so the response is a flat JSON
+/// array of these objects.
+struct IssueCommentNode: Decodable {
+    let id: Int
+    let body: String?
+    let user: IssueCommentUser?
+    let htmlURL: String?
+    let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, body, user
+        case htmlURL = "html_url"
+        case createdAt = "created_at"
+    }
+}
+
+struct IssueCommentUser: Decodable {
+    let login: String
+}
+
+func parseConversationComments(from json: String) throws(GitHubCommandError) -> [PRConversationComment] {
+    let data = Data(json.utf8)
+    let decoder = JSONDecoder()
+    do {
+        let nodes = try decoder.decode([IssueCommentNode].self, from: data)
+        return nodes.map { node in
+            PRConversationComment(
+                id: String(node.id),
+                body: node.body ?? "",
+                author: node.user?.login ?? "",
+                url: node.htmlURL ?? "",
+                createdAt: node.createdAt ?? ""
+            )
+        }
+    } catch {
+        throw GitHubCommandError.jsonDecodingFailed(error.localizedDescription)
+    }
+}
+
 func parseReviewThreads(from json: String) throws(GitHubCommandError) -> [ReviewThread] {
     let data = Data(json.utf8)
     let decoder = JSONDecoder()

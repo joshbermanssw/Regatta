@@ -10,10 +10,19 @@ private actor RecordingPoller: PullRequestPolling {
     private(set) var checkCalls: [(owner: String, repo: String, prNumber: Int)] = []
     private let checks: [PRCheck]
     private let threads: [ReviewThread]
+    private let conversationComments: [PRConversationComment]
+    private let login: String
 
-    init(checks: [PRCheck], threads: [ReviewThread]) {
+    init(
+        checks: [PRCheck],
+        threads: [ReviewThread],
+        conversationComments: [PRConversationComment] = [],
+        login: String = "shepherd-bot"
+    ) {
         self.checks = checks
         self.threads = threads
+        self.conversationComments = conversationComments
+        self.login = login
     }
 
     func fetchChecks(owner: String, repo: String, prNumber: Int) async throws -> [PRCheck] {
@@ -24,6 +33,12 @@ private actor RecordingPoller: PullRequestPolling {
     func fetchReviewThreads(owner: String, repo: String, prNumber: Int) async throws -> [ReviewThread] {
         threads
     }
+
+    func fetchConversationComments(owner: String, repo: String, prNumber: Int) async throws -> [PRConversationComment] {
+        conversationComments
+    }
+
+    func currentUserLogin() async throws -> String { login }
 
     func recordedCalls() -> [(owner: String, repo: String, prNumber: Int)] { checkCalls }
 }

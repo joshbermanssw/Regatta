@@ -13,22 +13,33 @@ final class StubWorkerSpawner: WorkerSpawning, @unchecked Sendable {
     private let lock = NSLock()
     private var _spawned: [CIFixWorkerSpec] = []
     private var _requests: [ReviewThreadWorkRequest] = []
+    private var _conversationRequests: [ConversationCommentWorkRequest] = []
     private let producesFix: Bool
     private let result: ReviewThreadWorkResult
+    private let conversationResult: ConversationCommentWorkResult
     private let error: (any Error)?
+    private let conversationError: (any Error)?
 
     /// - Parameters:
     ///   - producesFix: What each spawned ci-fix worker's `attemptFix()` returns.
     ///   - result: The canned review-thread work result.
-    ///   - error: When non-nil, ``spawnWorker(for:)`` throws this instead.
+    ///   - conversationResult: The canned conversation-comment work result.
+    ///   - error: When non-nil, the review-thread ``spawnWorker(for:)`` throws
+    ///     this instead.
+    ///   - conversationError: When non-nil, the conversation-comment
+    ///     ``spawnWorker(for:)`` throws this instead.
     init(
         producesFix: Bool = true,
         result: ReviewThreadWorkResult = .init(pushedCodeChange: true, replyBody: "Addressed.", shouldResolve: true),
-        error: (any Error)? = nil
+        conversationResult: ConversationCommentWorkResult = .init(pushedCodeChange: true, replyBody: "Addressed."),
+        error: (any Error)? = nil,
+        conversationError: (any Error)? = nil
     ) {
         self.producesFix = producesFix
         self.result = result
+        self.conversationResult = conversationResult
         self.error = error
+        self.conversationError = conversationError
     }
 
     // MARK: - ci-fix spawn (#30)
@@ -53,6 +64,20 @@ final class StubWorkerSpawner: WorkerSpawning, @unchecked Sendable {
         lock.withLock { _requests.append(request) }
         if let error { throw error }
         return result
+    }
+
+    // MARK: - conversation-comment spawn
+
+    /// Every conversation-comment request passed to ``spawnWorker(for:)``, in order.
+    var conversationRequests: [ConversationCommentWorkRequest] { lock.withLock { _conversationRequests } }
+
+    /// Number of conversation-comment workers spawned.
+    var conversationSpawnCount: Int { lock.withLock { _conversationRequests.count } }
+
+    func spawnWorker(for request: ConversationCommentWorkRequest) async throws -> ConversationCommentWorkResult {
+        lock.withLock { _conversationRequests.append(request) }
+        if let conversationError { throw conversationError }
+        return conversationResult
     }
 }
 

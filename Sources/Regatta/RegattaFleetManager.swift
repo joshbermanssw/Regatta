@@ -53,6 +53,14 @@ final class RegattaFleetManager {
     /// The bridge forwarding Fleet snapshots to the review-thread reactor.
     private let reviewThreadBridge: FleetReviewThreadBridge
 
+    /// The conversation-comment reactor that spawns a real addressing worker for
+    /// each new top-level PR comment (skipping the shepherd's own replies),
+    /// retained for the app's lifetime.
+    private let conversationCommentReactor: ConversationCommentReactor
+
+    /// The bridge forwarding Fleet snapshots to the conversation-comment reactor.
+    private let conversationCommentBridge: FleetConversationCommentBridge
+
     private let defaults: UserDefaults
     private var defaultsObserver: NSObjectProtocol?
 
@@ -99,17 +107,34 @@ final class RegattaFleetManager {
         self.reviewThreadReactor = reviewThreadReactor
         self.reviewThreadBridge = FleetReviewThreadBridge(fleet: fleet, reactor: reviewThreadReactor)
 
+        // Conversation-comment handler: spawn a real addressing worker per new
+        // top-level PR comment, gated and writing back through the real `gh`
+        // writer. The self-login provider resolves the authenticated `gh` user so
+        // the reactor skips the shepherd's own replies (loop prevention).
+        let conversationCommentReactor = ConversationCommentReactor(
+            spawner: spawner,
+            writer: poller,
+            gate: fleet.autonomyGate,
+            log: RegattaConversationCommentActivityLogger(),
+            selfLogin: { try? await poller.currentUserLogin() }
+        )
+        self.conversationCommentReactor = conversationCommentReactor
+        self.conversationCommentBridge = FleetConversationCommentBridge(
+            fleet: fleet, reactor: conversationCommentReactor
+        )
+
         observeConcurrencyCap()
         startReactors()
     }
 
-    /// Starts both Fleet→reactor bridges so handing a PR off actually reacts to
-    /// CI failures and new review threads end-to-end. Idempotent (each bridge's
-    /// `start()` is a no-op once running).
+    /// Starts all Fleet→reactor bridges so handing a PR off actually reacts to CI
+    /// failures, new review threads, and new conversation comments end-to-end.
+    /// Idempotent (each bridge's `start()` is a no-op once running).
     private func startReactors() {
-        Task { [ciFixBridge, reviewThreadBridge] in
+        Task { [ciFixBridge, reviewThreadBridge, conversationCommentBridge] in
             await ciFixBridge.start()
             await reviewThreadBridge.start()
+            await conversationCommentBridge.start()
         }
     }
 
