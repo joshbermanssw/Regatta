@@ -1,5 +1,5 @@
 public import RegattaGitHub
-import Foundation
+public import Foundation
 
 /// The Regatta Fleet: the registry of long-lived PR shepherd watchers.
 ///
@@ -37,6 +37,15 @@ public actor Fleet {
     /// actor. Reading the reference is safe; every gate *operation* still awaits.
     public nonisolated let autonomyGate: AutonomyGate
 
+    /// The per-PR map of checkout directories that the spawner's
+    /// `repoURLResolver` reads back, so handed-off PRs run their workers against
+    /// the real repo and not the launched app's `/` working directory (Bug 1).
+    ///
+    /// `nonisolated` so the composition root can read this immutable, `Sendable`
+    /// actor reference synchronously (to build the spawner's resolver) without
+    /// hopping onto the Fleet actor. Every store operation still awaits.
+    public nonisolated let repositoryDirectories: PRRepositoryDirectoryStore
+
     private var watchers: [String: ShepherdWatcher] = [:]
     private var latest: [String: ShepherdState] = [:]
     private var fanoutTasks: [String: Task<Void, Never>] = [:]
@@ -61,10 +70,12 @@ public actor Fleet {
     public init(
         autoStart: Bool = true,
         autonomyGate: AutonomyGate = AutonomyGate(),
+        repositoryDirectories: PRRepositoryDirectoryStore = PRRepositoryDirectoryStore(),
         makeWatcher: @escaping @Sendable (PullRequestRef) -> ShepherdWatcher
     ) {
         self.autoStart = autoStart
         self.autonomyGate = autonomyGate
+        self.repositoryDirectories = repositoryDirectories
         self.makeWatcher = makeWatcher
     }
 
@@ -76,10 +87,12 @@ public actor Fleet {
     public init(
         poller: any PullRequestPolling = GitHubPoller(),
         pollInterval: Duration = .seconds(30),
-        autonomyGate: AutonomyGate = AutonomyGate()
+        autonomyGate: AutonomyGate = AutonomyGate(),
+        repositoryDirectories: PRRepositoryDirectoryStore = PRRepositoryDirectoryStore()
     ) {
         self.autoStart = true
         self.autonomyGate = autonomyGate
+        self.repositoryDirectories = repositoryDirectories
         self.makeWatcher = { ref in
             ShepherdWatcher(pullRequest: ref, poller: poller, pollInterval: pollInterval)
         }
@@ -91,6 +104,28 @@ public actor Fleet {
     /// Idempotent on ``PullRequestRef`` identity: a repeat handoff of the same PR
     /// returns the existing shepherd and does not create a duplicate.
     ///
+    /// Hands a pull request off **and records its on-disk checkout directory**,
+    /// so the spawner provisions worktrees against the real repo (Bug 1).
+    ///
+    /// Idempotent on ``PullRequestRef`` identity for the watcher; the directory is
+    /// always (re)recorded so a later handoff from a different checkout updates it.
+    ///
+    /// - Parameters:
+    ///   - pullRequest: The PR to shepherd.
+    ///   - repositoryDirectory: The absolute path to the PR's git checkout, or
+    ///     `nil` if none could be captured (the spawner then declines to run).
+    /// - Returns: The shepherd's ``ShepherdWatcher`` (existing or newly created).
+    @discardableResult
+    public func handoff(
+        _ pullRequest: PullRequestRef,
+        repositoryDirectory: URL?
+    ) async -> ShepherdWatcher {
+        if let repositoryDirectory {
+            await repositoryDirectories.record(repositoryDirectory, for: pullRequest)
+        }
+        return handoff(pullRequest)
+    }
+
     /// - Parameter pullRequest: The PR to shepherd.
     /// - Returns: The shepherd's ``ShepherdWatcher`` (existing or newly created).
     @discardableResult

@@ -5,14 +5,22 @@ import RegattaGitHub
 @Suite("ReviewThreadReactor — new-comment handling")
 struct ReviewThreadReactorTests {
     private let pr = PullRequestRef(owner: "manaflow-ai", repo: "cmux", number: 28)
+    private let selfLogin = "joshbermanssw"
 
     private func makeReactor(
         spawner: StubWorkerSpawner = StubWorkerSpawner(),
         writer: StubPullRequestWriter = StubPullRequestWriter(),
         gate: StubGate = StubGate(),
-        log: StubActivityLog = StubActivityLog()
+        log: StubActivityLog = StubActivityLog(),
+        login: String? = nil
     ) -> ReviewThreadReactor {
-        ReviewThreadReactor(spawner: spawner, writer: writer, gate: gate, log: log)
+        ReviewThreadReactor(
+            spawner: spawner,
+            writer: writer,
+            gate: gate,
+            log: log,
+            selfLogin: { login }
+        )
     }
 
     @Test("a new actionable thread spawns a worker")
@@ -83,6 +91,82 @@ struct ReviewThreadReactorTests {
 
         #expect(spawner.spawnCount == 0)
         #expect(await reactor.handledThreadIDs.isEmpty)
+    }
+
+    /// Bug 3: a resolved thread must spawn no worker even when it carries
+    /// comments (the user saw resolved threads acted on and wants certainty).
+    @Test("a resolved thread with comments spawns no worker")
+    func resolvedThreadWithCommentsSpawnsNothing() async {
+        let spawner = StubWorkerSpawner()
+        let reactor = makeReactor(spawner: spawner)
+
+        await reactor.react(to: makeState(pr, threads: [
+            makeThread("RESOLVED", resolved: true, comments: 3),
+        ]))
+
+        #expect(spawner.spawnCount == 0)
+        #expect(await reactor.handledThreadIDs.isEmpty)
+    }
+
+    /// Bug 2(a): a thread whose actionable comment is authored by the current gh
+    /// user must not spawn a worker (it is the user's own comment).
+    @Test("a thread authored by the current user does NOT spawn a worker")
+    func selfAuthoredThreadIsSkipped() async {
+        let spawner = StubWorkerSpawner()
+        let reactor = makeReactor(spawner: spawner, login: selfLogin)
+
+        await reactor.react(to: makeState(pr, threads: [
+            makeThread("SELF", author: selfLogin),
+        ]))
+
+        #expect(spawner.spawnCount == 0)
+        #expect(await reactor.handledThreadIDs.isEmpty)
+    }
+
+    /// Bug 2(b): a thread whose actionable comment is authored by a bot (login
+    /// ending in `[bot]`, e.g. `vercel[bot]`) must not spawn a worker.
+    @Test("a bot-authored thread does NOT spawn a worker")
+    func botAuthoredThreadIsSkipped() async {
+        let spawner = StubWorkerSpawner()
+        let reactor = makeReactor(spawner: spawner, login: selfLogin)
+
+        await reactor.react(to: makeState(pr, threads: [
+            makeThread("BOT", author: "vercel[bot]"),
+        ]))
+
+        #expect(spawner.spawnCount == 0)
+        #expect(await reactor.handledThreadIDs.isEmpty)
+    }
+
+    /// Bug 2(c): if the LAST comment in a thread is authored by the current user,
+    /// the thread is already answered and must not spawn a worker.
+    @Test("a thread already answered by the current user is skipped")
+    func alreadyAnsweredThreadIsSkipped() async {
+        let spawner = StubWorkerSpawner()
+        let reactor = makeReactor(spawner: spawner, login: selfLogin)
+
+        await reactor.react(to: makeState(pr, threads: [
+            // reviewer asked, then the current user already replied.
+            makeThread("ANSWERED", authors: ["0xharkirat", selfLogin]),
+        ]))
+
+        #expect(spawner.spawnCount == 0)
+        #expect(await reactor.handledThreadIDs.isEmpty)
+    }
+
+    /// A genuine reviewer comment (not the current user, not a bot, unresolved,
+    /// not yet answered) still spawns a worker.
+    @Test("a genuine unanswered reviewer thread DOES spawn a worker")
+    func genuineReviewerThreadSpawns() async {
+        let spawner = StubWorkerSpawner()
+        let reactor = makeReactor(spawner: spawner, login: selfLogin)
+
+        await reactor.react(to: makeState(pr, threads: [
+            makeThread("REAL", author: "0xharkirat"),
+        ]))
+
+        #expect(spawner.spawnCount == 1)
+        #expect(await reactor.handledThreadIDs == ["REAL"])
     }
 
     @Test("a gate-suppressed thread is not marked handled and retries on the next poll")

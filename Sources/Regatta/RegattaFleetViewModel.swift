@@ -199,7 +199,9 @@ final class RegattaFleetViewModel {
             switch resolution {
             case .resolved(let ref):
                 let isDuplicate = self.shepherds.contains { $0.pullRequest == ref }
-                await self.fleet.handoff(ref)
+                // Bug 1: record the active workspace's on-disk checkout so the
+                // spawner runs this PR's workers against the real repo, not `/`.
+                await self.fleet.handoff(ref, repositoryDirectory: Self.repositoryURL(from: context))
                 if isDuplicate {
                     self.toasts.info(
                         String.localizedStringWithFormat(
@@ -246,6 +248,17 @@ final class RegattaFleetViewModel {
     /// ``handoffActiveTab(context:resolver:)``.
     func handoff(_ pullRequest: PullRequestRef) {
         Task { await fleet.handoff(pullRequest) }
+    }
+
+    /// The on-disk checkout directory for a handoff context, or `nil` when the
+    /// context is missing or carries no directory. Recorded with the handoff so
+    /// the spawner runs the PR's workers against the real repo (Bug 1).
+    private static func repositoryURL(from context: AttachedTabContext?) -> URL? {
+        guard let directory = context?.currentDirectory
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !directory.isEmpty
+        else { return nil }
+        return URL(fileURLWithPath: directory)
     }
 
     /// The detail line for the no-PR error, naming the branch when known.

@@ -51,14 +51,33 @@ struct ConversationCommentReactorTests {
         #expect(await reactor.handledCommentIDs.isEmpty)
     }
 
-    @Test("a self-authored reply interleaved with a real comment only spawns for the real one")
-    func mixedSelfAndOtherComments() async {
+    /// A real comment followed by the current user's own reply is *already
+    /// answered* (rule 2c): the user has responded after it, so it must not spawn
+    /// a worker. (The newer-comment-after-reply case is covered separately.)
+    @Test("a real comment the user already replied to after is not re-actioned")
+    func realCommentBeforeSelfReplyIsAnswered() async {
         let spawner = StubWorkerSpawner()
         let reactor = makeReactor(spawner: spawner, login: selfLogin)
 
         await reactor.react(to: makeConvState(pr, comments: [
             makeComment("OTHER", author: "alice"),
             makeComment("MINE", author: selfLogin),
+        ]))
+
+        #expect(spawner.conversationSpawnCount == 0)
+        #expect(await reactor.handledCommentIDs.isEmpty)
+    }
+
+    /// A real comment that arrives *after* the user's last reply is still
+    /// actionable — earlier self replies do not answer later questions.
+    @Test("a real comment after the user's reply spawns a worker")
+    func realCommentAfterSelfReplyStillSpawns() async {
+        let spawner = StubWorkerSpawner()
+        let reactor = makeReactor(spawner: spawner, login: selfLogin)
+
+        await reactor.react(to: makeConvState(pr, comments: [
+            makeComment("MINE", author: selfLogin),
+            makeComment("OTHER", author: "alice"),
         ]))
 
         #expect(spawner.conversationSpawnCount == 1)
@@ -110,6 +129,56 @@ struct ConversationCommentReactorTests {
 
         #expect(spawner.conversationSpawnCount == 2)
         #expect(spawner.conversationRequests.map(\.comment.id) == ["C1", "C2"])
+    }
+
+    /// Bug 2(b): a comment authored by a bot (login ending in `[bot]`, e.g.
+    /// `vercel[bot]`) must not spawn a worker — automated comments aren't
+    /// actionable.
+    @Test("a bot-authored comment does NOT spawn a worker")
+    func botAuthoredCommentIsSkipped() async {
+        let spawner = StubWorkerSpawner()
+        let reactor = makeReactor(spawner: spawner)
+
+        await reactor.react(to: makeConvState(pr, comments: [
+            makeComment("BOT", author: "vercel[bot]"),
+        ]))
+
+        #expect(spawner.conversationSpawnCount == 0)
+        #expect(await reactor.handledCommentIDs.isEmpty)
+    }
+
+    /// Bug 2(c): if the current user has already replied **after** a comment, the
+    /// comment is already answered and must not spawn a worker.
+    @Test("a comment the current user already replied to is skipped")
+    func alreadyAnsweredCommentIsSkipped() async {
+        let spawner = StubWorkerSpawner()
+        let reactor = makeReactor(spawner: spawner, login: selfLogin)
+
+        // alice asked; the current user (shepherd) already replied afterwards.
+        await reactor.react(to: makeConvState(pr, comments: [
+            makeComment("ASK", author: "alice"),
+            makeComment("MYREPLY", author: selfLogin),
+        ]))
+
+        #expect(spawner.conversationSpawnCount == 0)
+        #expect(await reactor.handledCommentIDs.isEmpty)
+    }
+
+    /// The "already answered" guard must not swallow a *newer* comment that
+    /// arrived after the current user's reply — that one is still actionable.
+    @Test("a new comment after the current user's reply still spawns")
+    func newCommentAfterSelfReplyStillSpawns() async {
+        let spawner = StubWorkerSpawner()
+        let reactor = makeReactor(spawner: spawner, login: selfLogin)
+
+        await reactor.react(to: makeConvState(pr, comments: [
+            makeComment("ASK", author: "alice"),
+            makeComment("MYREPLY", author: selfLogin),
+            makeComment("FOLLOWUP", author: "alice"),
+        ]))
+
+        #expect(spawner.conversationSpawnCount == 1)
+        #expect(spawner.conversationRequests.map(\.comment.id) == ["FOLLOWUP"])
     }
 
     @Test("an empty-bodied comment is ignored")

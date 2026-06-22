@@ -132,6 +132,95 @@ struct OrchestratorWorkerSpawnerTests {
         #expect(result.replyBody != nil)
     }
 
+    // MARK: - Bug 1: repo dir resolution from the handoff map
+
+    /// The spawner resolves the PR's real on-disk checkout from the handoff map
+    /// (the Fleet's ``PRRepositoryDirectoryStore``) — proving worktrees provision
+    /// against the real repo and not the launched app's `/` working directory.
+    @Test("review-thread spawn runs against the PR's recorded repo dir")
+    func resolvesRepoDirFromHandoffMap() async throws {
+        let repo = try makeFixtureRepo()
+        let base = makeBaseDir()
+        defer {
+            try? FileManager.default.removeItem(at: repo)
+            try? FileManager.default.removeItem(at: base)
+        }
+        let orchestrator = makeOrchestrator(base: base)
+
+        // Record the PR → repo dir mapping exactly as a handoff would.
+        let directories = PRRepositoryDirectoryStore()
+        await directories.record(repo, for: ref(7))
+
+        let spawner = OrchestratorWorkerSpawner(
+            orchestrator: orchestrator,
+            repoURLResolver: { pr in await directories.directory(for: pr) },
+            diffProbe: TestDiffProbe(result: true)
+        )
+        let thread = ReviewThread(
+            id: "T1", isResolved: false, isOutdated: false, path: "Sources/A.swift",
+            comments: [ReviewComment(id: "c1", body: "please fix", author: "rev", url: "https://x")]
+        )
+        let result = try await spawner.spawnWorker(
+            for: ReviewThreadWorkRequest(pullRequest: ref(7), thread: thread)
+        )
+        // A worktree was provisioned off the real fixture repo and the agent ran
+        // to completion (it could not have if the repo dir were `/`).
+        #expect(result.pushedCodeChange == true)
+    }
+
+    /// A PR with no recorded checkout must NOT fall back to `/` (which yields the
+    /// cryptic "target directory is not a git repository" error). The spawner
+    /// reports "nothing done" so the reactor surfaces it cleanly instead.
+    @Test("a PR with no recorded repo dir does not spawn against /")
+    func unknownRepoDirFailsCleanly() async throws {
+        let base = makeBaseDir()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let orchestrator = makeOrchestrator(base: base)
+
+        let directories = PRRepositoryDirectoryStore() // empty — nothing recorded
+        let spawner = OrchestratorWorkerSpawner(
+            orchestrator: orchestrator,
+            repoURLResolver: { pr in await directories.directory(for: pr) },
+            diffProbe: TestDiffProbe(result: true)
+        )
+        let thread = ReviewThread(
+            id: "T1", isResolved: false, isOutdated: false, path: "Sources/A.swift",
+            comments: [ReviewComment(id: "c1", body: "please fix", author: "rev", url: "https://x")]
+        )
+        let result = try await spawner.spawnWorker(
+            for: ReviewThreadWorkRequest(pullRequest: ref(99), thread: thread)
+        )
+        // No checkout ⇒ no work claimed; nothing pushed, nothing resolved.
+        #expect(result.pushedCodeChange == false)
+        #expect(result.shouldResolve == false)
+    }
+
+    /// A PR with no recorded checkout reports a clear, user-facing message
+    /// (wired to a toast in production) rather than failing silently or in `/`.
+    @Test("a PR with no recorded repo dir reports a clear missing-checkout message")
+    func unknownRepoDirReportsToMissingHandler() async throws {
+        let base = makeBaseDir()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let orchestrator = makeOrchestrator(base: base)
+
+        let reported = MissingRepoRecorder()
+        let spawner = OrchestratorWorkerSpawner(
+            orchestrator: orchestrator,
+            repoURLResolver: { _ in nil },
+            diffProbe: TestDiffProbe(result: true),
+            onMissingRepository: { pr in await reported.record(pr) }
+        )
+        let thread = ReviewThread(
+            id: "T1", isResolved: false, isOutdated: false, path: "Sources/A.swift",
+            comments: [ReviewComment(id: "c1", body: "please fix", author: "rev", url: "https://x")]
+        )
+        _ = try await spawner.spawnWorker(
+            for: ReviewThreadWorkRequest(pullRequest: ref(5), thread: thread)
+        )
+
+        #expect(await reported.refs == [ref(5)])
+    }
+
     // MARK: - Reactor end-to-end (Seam A + the real CIFixReactor + a stub gate)
 
     @Test("CIFixReactor runs the real spawner to a green outcome when checks pass")
@@ -222,6 +311,14 @@ private actor TestEchoPaneBridge: PaneBridge {
 private struct TestDiffProbe: RegattaDiffProbing {
     let result: Bool
     func hasUncommittedChanges(at worktreePath: URL) async throws -> Bool { result }
+}
+
+/// Records every PR the spawner reports as having no local checkout, so a test
+/// asserts the user-facing missing-checkout report fires (wired to a toast in
+/// production) instead of a silent or `/`-rooted failure.
+private actor MissingRepoRecorder {
+    private(set) var refs: [PullRequestRef] = []
+    func record(_ ref: PullRequestRef) { refs.append(ref) }
 }
 
 /// A ``PullRequestPolling`` that always reports a single green check, so the
