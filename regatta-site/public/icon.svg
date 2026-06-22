@@ -1,0 +1,27 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Regatta app icon">
+  <title>Regatta app icon</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#191C24"/>
+      <stop offset="1" stop-color="#101116"/>
+    </linearGradient>
+    <linearGradient id="leadIcon" x1="80" y1="18" x2="110" y2="94" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3DA0FF"/>
+      <stop offset="1" stop-color="#1E90FF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- macOS-style rounded canvas -->
+  <rect x="0" y="0" width="512" height="512" rx="114" fill="url(#bg)"/>
+  <rect x="0.5" y="0.5" width="511" height="511" rx="113.5" stroke="#1E90FF" stroke-opacity="0.18"/>
+
+  <!-- centered fleet mark -->
+  <g transform="translate(49,71.5) scale(3)">
+    <path d="M30 52 L30 94 L50 94 Z" fill="#1E90FF" fill-opacity="0.32"/>
+    <path d="M54 38 L54 94 L74 94 Z" fill="#1E90FF" fill-opacity="0.58"/>
+    <path d="M80 18 L80 94 L110 94 Z" fill="url(#leadIcon)"/>
+    <path d="M80 16 L99 21 L80 26 Z" fill="#00FF9C"/>
+    <rect x="22" y="98" width="94" height="3" rx="1.5" fill="#1E90FF"/>
+    <rect x="28" y="105" width="40" height="2" rx="1" fill="#1E90FF" fill-opacity="0.40"/>
+  </g>
+</svg>

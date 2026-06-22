@@ -1,0 +1,26 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Regatta">
+  <title>Regatta</title>
+  <!-- Fleet of sails: a bold lead sail (the brain) ahead of two trailing sails (the fleet),
+       on a waterline, drawn with nautical-chart precision. The masthead burgee glows
+       Wake Green = the live signal. -->
+  <defs>
+    <linearGradient id="lead" x1="80" y1="18" x2="110" y2="94" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3DA0FF"/>
+      <stop offset="1" stop-color="#1E90FF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- rear sail -->
+  <path d="M30 52 L30 94 L50 94 Z" fill="#1E90FF" fill-opacity="0.32"/>
+  <!-- mid sail -->
+  <path d="M54 38 L54 94 L74 94 Z" fill="#1E90FF" fill-opacity="0.58"/>
+  <!-- lead sail -->
+  <path d="M80 18 L80 94 L110 94 Z" fill="url(#lead)"/>
+
+  <!-- masthead burgee — the live signal -->
+  <path d="M80 16 L99 21 L80 26 Z" fill="#00FF9C"/>
+
+  <!-- waterline -->
+  <rect x="22" y="98" width="94" height="3" rx="1.5" fill="#1E90FF"/>
+  <rect x="28" y="105" width="40" height="2" rx="1" fill="#1E90FF" fill-opacity="0.40"/>
+</svg>
