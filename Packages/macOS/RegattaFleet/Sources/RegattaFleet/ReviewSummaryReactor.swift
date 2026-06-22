@@ -175,13 +175,21 @@ public actor ReviewSummaryReactor {
         policy: ShepherdAuthorPolicy,
         lastSelfReviewIndex: Int?
     ) -> Bool {
-        // TEMPORARY (commit 1 of the two-commit regression structure): only the
-        // author skip rules are applied. The state/body/superseded skip rules are
-        // intentionally NOT yet implemented so the skip-rule tests go red; commit
-        // 2 adds them and turns the suite green.
-        _ = index
-        _ = lastSelfReviewIndex
-        return policy.isActionableAuthor(review.author)
+        guard policy.isActionableAuthor(review.author) else { return false }
+        // Already answered / superseded: the user reviewed at a later position.
+        if let lastSelfReviewIndex, index <= lastSelfReviewIndex { return false }
+
+        switch review.state {
+        case .changesRequested:
+            // A blocking review is always actionable, even with an empty body —
+            // "address my requested changes".
+            return true
+        case .commented, .approved:
+            // Non-blocking: only worth acting on with a substantive note.
+            return isSubstantive(review.body)
+        case .dismissed, .other:
+            return false
+        }
     }
 
     /// Whether a review body is substantive enough to act on (for non-blocking
