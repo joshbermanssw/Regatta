@@ -9,6 +9,13 @@ struct CIFixReactorTests {
     private func failing() -> [PRCheck] {
         [PRCheck(name: "build", status: "COMPLETED", conclusion: "FAILURE", detailsURL: nil)]
     }
+    private func multiFailing() -> [PRCheck] {
+        [
+            PRCheck(name: "Check staging slot capacity", status: "COMPLETED", conclusion: "FAILURE", detailsURL: nil),
+            PRCheck(name: "agent", status: "COMPLETED", conclusion: "FAILURE", detailsURL: nil),
+            PRCheck(name: "lint", status: "COMPLETED", conclusion: "SUCCESS", detailsURL: nil),
+        ]
+    }
     private func green() -> [PRCheck] {
         [PRCheck(name: "build", status: "COMPLETED", conclusion: "SUCCESS", detailsURL: nil)]
     }
@@ -125,6 +132,49 @@ struct CIFixReactorTests {
         #expect(spawner.lastHandle?.attemptCount == 1)
         // No push was authorized (the worker produced nothing to push).
         #expect(gate.requestCount == 0)
+    }
+
+    @Test("no-progress reason names the still-failing checks")
+    func noProgressReasonNamesChecks() async {
+        let spawner = StubWorkerSpawner(producesFix: false)
+        let gate = StubOutwardActionGate(verdict: .allowed)
+        let poller = SequencedPullRequestPoller([.checks(multiFailing())])
+        let reactor = makeReactor(spawner: spawner, gate: gate, poller: poller, maxIterations: 5)
+
+        let outcome = await reactor.runFixLoop(for: pr)
+
+        guard case let .needsAttention(reason) = outcome else {
+            Issue.record("expected needsAttention, got \(outcome)")
+            return
+        }
+        // Distinguishes the no-progress stop reason from the cap reason.
+        #expect(reason.contains("no code-level fix found"))
+        // Names the still-failing checks (succeeded ones omitted).
+        #expect(reason.contains("Check staging slot capacity"))
+        #expect(reason.contains("agent"))
+        #expect(!reason.contains("lint"))
+    }
+
+    @Test("cap reason mentions the number of attempts and names the failing checks")
+    func capReasonMentionsAttemptsAndChecks() async {
+        let spawner = StubWorkerSpawner(producesFix: true)
+        let gate = StubOutwardActionGate(verdict: .allowed)
+        // Always red across re-polls so the loop runs to the cap.
+        let poller = SequencedPullRequestPoller([.checks(multiFailing())])
+        let reactor = makeReactor(spawner: spawner, gate: gate, poller: poller, maxIterations: 3)
+
+        let outcome = await reactor.runFixLoop(for: pr)
+
+        guard case let .needsAttention(reason) = outcome else {
+            Issue.record("expected needsAttention, got \(outcome)")
+            return
+        }
+        // Distinguishes the cap stop reason: "gave up after N attempts".
+        #expect(reason.contains("gave up after"))
+        #expect(reason.contains("3"))
+        // Names the still-failing checks.
+        #expect(reason.contains("Check staging slot capacity"))
+        #expect(reason.contains("agent"))
     }
 
     @Test("no progress does not respawn: ingest stops after one no-op attempt")
