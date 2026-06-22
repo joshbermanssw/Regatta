@@ -63,6 +63,11 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
     /// toast.
     private let onUnresolvableAgent: @Sendable (any Error) async -> Void
 
+    /// Records each ci-fix worker's worktree so the gate-routed push
+    /// (``GitPushActionExecutor``) targets exactly the commits the agent made.
+    /// Optional so review/conversation paths and tests can omit it.
+    private let ciFixWorktreeStore: CIFixWorktreeStore?
+
     /// Creates a spawner.
     ///
     /// - Parameters:
@@ -89,7 +94,8 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
         provider: any AgentProvider = ClaudeCodeProvider(),
         resolveExecutable: @escaping WorkerAgentExecutableResolving = WorkerAgentExecutableResolution.defaultResolver(),
         onMissingRepository: @escaping @Sendable (PullRequestRef) async -> Void = { _ in },
-        onUnresolvableAgent: @escaping @Sendable (any Error) async -> Void = { _ in }
+        onUnresolvableAgent: @escaping @Sendable (any Error) async -> Void = { _ in },
+        ciFixWorktreeStore: CIFixWorktreeStore? = nil
     ) {
         self.orchestrator = orchestrator
         self.repoURLResolver = repoURLResolver
@@ -98,6 +104,7 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
         self.resolveExecutable = resolveExecutable
         self.onMissingRepository = onMissingRepository
         self.onUnresolvableAgent = onUnresolvableAgent
+        self.ciFixWorktreeStore = ciFixWorktreeStore
     }
 
     // MARK: - WorkerSpawning
@@ -118,7 +125,8 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
             diffProbe: diffProbe,
             provider: provider,
             resolveExecutable: resolveExecutable,
-            onUnresolvableAgent: onUnresolvableAgent
+            onUnresolvableAgent: onUnresolvableAgent,
+            worktreeStore: ciFixWorktreeStore
         )
     }
 
@@ -337,10 +345,17 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
         }
     }
 
-    /// Whether the worker's worktree has uncommitted changes (its work product).
+    /// Whether the worker produced work worth pushing — new local commits or
+    /// uncommitted changes in its worktree.
+    ///
+    /// The autonomy gate (issue #32) owns the *push*: workers are prompted to fix
+    /// and **commit locally, not push**, so the "produced changes" signal must
+    /// catch a *clean-but-committed* worktree (the common case). Probing only for
+    /// uncommitted changes would miss a worker that committed its fix and report a
+    /// false "no fix" — the bug that made the loop respawn forever.
     private func producedChanges(workerID: UUID) async -> Bool {
         guard let worktree = await orchestrator.worktree(for: workerID) else { return false }
-        return (try? await diffProbe.hasUncommittedChanges(at: worktree.path)) ?? false
+        return (try? await diffProbe.hasProducedWork(at: worktree.path)) ?? false
     }
 
     /// Builds the addressing prompt from the thread's most recent comment.
@@ -352,7 +367,9 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
 
         \(comment)
 
-        Address the comment: make the code change it asks for, commit it, and push.
+        Address the comment: make the code change it asks for and commit it locally \
+        in this worktree. Do NOT push — Regatta pushes through its autonomy gate \
+        after you finish.
         """
     }
 
@@ -365,8 +382,10 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
 
         \(request.comment.body)
 
-        Address the comment: if it asks for a code change, make it, commit it, and \
-        push. If it is a question, investigate and prepare a concise answer.
+        Address the comment: if it asks for a code change, make it and commit it \
+        locally in this worktree (do NOT push — Regatta pushes through its autonomy \
+        gate after you finish). If it is a question, investigate and prepare a \
+        concise answer.
         """
     }
 
@@ -387,10 +406,11 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
 
         \(request.review.body)
 
-        Address the review: if it asks for a code change, make it, commit it, and \
-        push. If it is a question, investigate and prepare a concise answer. If \
-        there is genuinely nothing to do (e.g. a plain approval with no actionable \
-        request), make no change and post no reply.
+        Address the review: if it asks for a code change, make it and commit it \
+        locally in this worktree (do NOT push — Regatta pushes through its autonomy \
+        gate after you finish). If it is a question, investigate and prepare a \
+        concise answer. If there is genuinely nothing to do (e.g. a plain approval \
+        with no actionable request), make no change and post no reply.
         """
     }
 }
@@ -410,6 +430,9 @@ struct OrchestratorCIFixWorkerHandle: CIFixWorkerHandle {
     private let provider: any AgentProvider
     private let resolveExecutable: WorkerAgentExecutableResolving
     private let onUnresolvableAgent: @Sendable (any Error) async -> Void
+    /// Records the worktree this worker committed into so the gate-routed push
+    /// (``GitPushActionExecutor``) targets exactly those commits.
+    private let worktreeStore: CIFixWorktreeStore?
 
     init(
         id: String,
@@ -420,7 +443,8 @@ struct OrchestratorCIFixWorkerHandle: CIFixWorkerHandle {
         diffProbe: any RegattaDiffProbing,
         provider: any AgentProvider,
         resolveExecutable: @escaping WorkerAgentExecutableResolving = WorkerAgentExecutableResolution.defaultResolver(),
-        onUnresolvableAgent: @escaping @Sendable (any Error) async -> Void = { _ in }
+        onUnresolvableAgent: @escaping @Sendable (any Error) async -> Void = { _ in },
+        worktreeStore: CIFixWorktreeStore? = nil
     ) {
         self.id = id
         self.pullRequest = pullRequest
@@ -431,6 +455,7 @@ struct OrchestratorCIFixWorkerHandle: CIFixWorkerHandle {
         self.provider = provider
         self.resolveExecutable = resolveExecutable
         self.onUnresolvableAgent = onUnresolvableAgent
+        self.worktreeStore = worktreeStore
     }
 
     func attemptFix() async -> Bool {
@@ -438,7 +463,8 @@ struct OrchestratorCIFixWorkerHandle: CIFixWorkerHandle {
         let prompt = """
         CI is failing on PR \(pullRequest.repoSlug)#\(pullRequest.number) \
         (branch \(branch)). Make CI green: diagnose the failing checks, fix them, \
-        commit, and push.
+        and commit your fix locally in this worktree. Do NOT push — Regatta pushes \
+        through its autonomy gate after you finish.
         """
         let launch: WorkerAgentLaunch
         do {
@@ -464,6 +490,17 @@ struct OrchestratorCIFixWorkerHandle: CIFixWorkerHandle {
         let terminal = await orchestrator.awaitTerminal(workerID)
         guard terminal?.status == .done else { return false }
         guard let worktree = await orchestrator.worktree(for: workerID) else { return false }
-        return (try? await diffProbe.hasUncommittedChanges(at: worktree.path)) ?? false
+        // "Produced a fix" = new local commits OR uncommitted changes. The worker
+        // is prompted to commit (not push) so a clean-but-committed worktree is the
+        // common success case; probing only for uncommitted changes would miss it
+        // and report a false "no fix", respawning the loop forever.
+        let produced = (try? await diffProbe.hasProducedWork(at: worktree.path)) ?? false
+        if produced {
+            // Record the worktree so the gate-routed push targets exactly these
+            // commits. Regatta — not the agent — performs the push, preserving the
+            // staged-approval autonomy gate.
+            await worktreeStore?.record(worktree.path, for: pullRequest)
+        }
+        return produced
     }
 }

@@ -622,6 +622,7 @@
 		BA2930010000000000000002 /* RegattaFleetViewModelActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2930010000000000000001 /* RegattaFleetViewModelActivityTests.swift */; };
 		BA2912040000000000000001 /* RegattaGitHub in Frameworks */ = {isa = PBXBuildFile; productRef = BA2912020000000000000001 /* RegattaGitHub */; };
 		BA2912050000000000000001 /* RegattaGitHub in Frameworks */ = {isa = PBXBuildFile; productRef = BA2912030000000000000001 /* RegattaGitHub */; };
+		BA2945040000000000000001 /* RegattaGitWorktreePusher.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2945010000000000000001 /* RegattaGitWorktreePusher.swift */; };
 		BA2960060000000000000002 /* RegattaHandoffResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2960060000000000000001 /* RegattaHandoffResolution.swift */; };
 		BA2960070000000000000002 /* RegattaHandoffResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2960070000000000000001 /* RegattaHandoffResolver.swift */; };
 		BA2950020000000000000002 /* RegattaHandoffResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2950020000000000000001 /* RegattaHandoffResolverTests.swift */; };
@@ -1658,6 +1659,7 @@
 		BA2920050000000000000001 /* RegattaFleetSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaFleetSectionView.swift; sourceTree = "<group>"; };
 		BA2903020000000000000001 /* RegattaFleetViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaFleetViewModel.swift; sourceTree = "<group>"; };
 		BA2930010000000000000001 /* RegattaFleetViewModelActivityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Regatta/RegattaFleetViewModelActivityTests.swift; sourceTree = "<group>"; };
+		BA2945010000000000000001 /* RegattaGitWorktreePusher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaGitWorktreePusher.swift; sourceTree = "<group>"; };
 		BA2960060000000000000001 /* RegattaHandoffResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaHandoffResolution.swift; sourceTree = "<group>"; };
 		BA2960070000000000000001 /* RegattaHandoffResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegattaHandoffResolver.swift; sourceTree = "<group>"; };
 		BA2950020000000000000001 /* RegattaHandoffResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Regatta/RegattaHandoffResolverTests.swift; sourceTree = "<group>"; };
@@ -2860,6 +2862,7 @@
 				BA2935070000000000000001 /* AppDelegate+RegattaSessionRestore.swift */,
 				BA2903010000000000000001 /* RegattaFleetManager.swift */,
 				BA2940010000000000000001 /* OrchestratorWorkerSpawner.swift */,
+				BA2945010000000000000001 /* RegattaGitWorktreePusher.swift */,
 				BA2940020000000000000001 /* WorkerAgentExecutableResolution.swift */,
 				BA2941010000000000000001 /* OrchestratorLoopEngineProvider.swift */,
 				BA2942010000000000000001 /* OrchestratorLoopTerminalJumper.swift */,
@@ -4004,6 +4007,7 @@
 				BA2903040000000000000001 /* RegattaFleetManager.swift in Sources */,
 				BA2920050000000000000002 /* RegattaFleetSectionView.swift in Sources */,
 				BA2903050000000000000001 /* RegattaFleetViewModel.swift in Sources */,
+				BA2945040000000000000001 /* RegattaGitWorktreePusher.swift in Sources */,
 				BA2960060000000000000002 /* RegattaHandoffResolution.swift in Sources */,
 				BA2960070000000000000002 /* RegattaHandoffResolver.swift in Sources */,
 				BA29010A0000000000000001 /* RegattaMemoryManager.swift in Sources */,

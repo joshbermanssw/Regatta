@@ -39,6 +39,10 @@ final class RegattaFleetManager {
     /// loop view bound to a live worker) reuse the same live spawn path.
     let workerSpawner: OrchestratorWorkerSpawner
 
+    /// Maps each PR to the worktree its most recent ci-fix worker committed into,
+    /// so the gate-routed ``GitPushActionExecutor`` pushes exactly those commits.
+    private let ciFixWorktreeStore: CIFixWorktreeStore
+
     /// The CI-fix reactor that spawns a real `ci-fix` worker when a shepherd's
     /// checks turn red (#30), retained for the app's lifetime.
     private let ciFixReactor: CIFixReactor
@@ -88,7 +92,21 @@ final class RegattaFleetManager {
         // One shared `gh`-backed poller drives both the Fleet's shepherd watchers
         // and the CI-fix reactor's "until green" loop condition.
         let poller = GitHubPoller()
-        let fleet = Fleet(poller: poller)
+
+        // Workers are prompted to commit locally, not push; the push is routed
+        // through the autonomy gate and performed here by a real `git push`. The
+        // ci-fix worker records the worktree it committed into; this resolver reads
+        // it back so the gate-approved push targets exactly those commits and is
+        // run by Regatta (never the agent), keeping the staged-approval gate
+        // meaningful (Parts B + C of the worker-can-act fix).
+        let ciFixWorktreeStore = CIFixWorktreeStore()
+        self.ciFixWorktreeStore = ciFixWorktreeStore
+        let pushExecutor = GitPushActionExecutor(
+            resolveWorktree: { action in await ciFixWorktreeStore.worktree(for: action.pullRequest) },
+            pusher: RegattaGitWorktreePusher()
+        )
+        let autonomyGate = AutonomyGate(executor: pushExecutor)
+        let fleet = Fleet(poller: poller, autonomyGate: autonomyGate)
         self.fleet = fleet
 
         // Seam A: the live spawner backs both reactors with real agent workers.
@@ -123,7 +141,8 @@ final class RegattaFleetManager {
                     ),
                     (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 )
-            }
+            },
+            ciFixWorktreeStore: ciFixWorktreeStore
         )
         self.workerSpawner = spawner
 

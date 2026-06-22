@@ -17,7 +17,13 @@ public struct CodexProvider: AgentProvider {
     public func makeLaunch(prompt: String) -> WorkerAgentLaunch {
         WorkerAgentLaunch(
             executableURL: AgentExecutable.envURL,
-            arguments: ["codex", "exec"],
+            // `--dangerously-bypass-approvals-and-sandbox` lets the headless `codex
+            // exec` worker actually edit files and run git/tests without an
+            // interactive approval prompt (which cannot be answered headlessly).
+            // The worker runs in an isolated, throwaway git worktree, so the bypass
+            // is scoped to that tree — the autonomous-agent equivalent of Claude
+            // Code's `--dangerously-skip-permissions`.
+            arguments: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox"],
             environment: [:],
             appendPrompt: true
         )
