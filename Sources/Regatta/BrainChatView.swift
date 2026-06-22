@@ -108,8 +108,16 @@ struct BrainChatView: View {
             .onChange(of: snapshots.last?.text) { _, _ in
                 scrollToBottom(proxy: proxy, snapshots: snapshots)
             }
+            // Cap the conversation height so a long chat scrolls *within* the
+            // Brain section instead of growing unbounded and pushing the Fleet
+            // and Memory sections down the rail. (A scroll view nested in the
+            // rail's outer scroll view otherwise expands to fit all its content.)
+            .frame(maxHeight: Self.maxMessageListHeight)
         }
     }
+
+    /// Maximum height of the scrollable conversation before it scrolls internally.
+    private static let maxMessageListHeight: CGFloat = 380
 
     private func scrollToBottom(proxy: ScrollViewProxy, snapshots: [BrainMessage]) {
         if let lastID = snapshots.last?.id {
