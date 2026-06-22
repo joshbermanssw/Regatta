@@ -36,6 +36,10 @@ public actor BrainSession {
     private var userCounter = 0
     private var assistantCounter = 0
     private var finished = false
+    /// Set once ``stop()`` is invoked, so the resulting termination is reported
+    /// as a clean exit (code 0) rather than a SIGTERM signal number that the UI
+    /// would mistake for an unexpected crash.
+    private var stopping = false
 
     public init(launch: BrainLaunch) {
         self.launch = launch
@@ -133,6 +137,7 @@ public actor BrainSession {
 
     /// Terminates the process and finishes the stream. Idempotent.
     public func stop() {
+        stopping = true
         readHandle?.readabilityHandler = nil
         guard let process, process.isRunning else {
             finish(code: process?.terminationStatus ?? 0)
@@ -316,8 +321,12 @@ public actor BrainSession {
     private func finish(code: Int32) {
         guard !finished else { return }
         finished = true
-        continuation?.yield(.status(.exited(code)))
-        continuation?.yield(.exited(code: code))
+        // A user-initiated ``stop()`` terminates via SIGTERM, whose
+        // `terminationStatus` is the signal number — report it as a clean exit so
+        // the UI doesn't surface a spurious "stopped unexpectedly" error.
+        let reportedCode = stopping ? 0 : code
+        continuation?.yield(.status(.exited(reportedCode)))
+        continuation?.yield(.exited(code: reportedCode))
         continuation?.finish()
         continuation = nil
     }

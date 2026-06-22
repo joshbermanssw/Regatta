@@ -192,10 +192,12 @@ struct BrainSessionTests {
 
         // Draining the stream must complete (it finishes after `.exited`) rather
         // than hang — proving teardown closes the persistent process cleanly.
-        var sawExit = false
+        // A user-initiated stop terminates via SIGTERM but must report a clean
+        // exit (code 0), not the signal number, so the UI shows no false crash.
+        var exitCode: Int32?
         for await event in stream {
-            if case .exited = event { sawExit = true }
+            if case .exited(let code) = event { exitCode = code }
         }
-        #expect(sawExit)
+        #expect(exitCode == 0)
     }
 }
