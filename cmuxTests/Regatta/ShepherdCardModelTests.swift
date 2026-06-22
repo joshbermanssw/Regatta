@@ -189,6 +189,47 @@ struct ShepherdCardModelTests {
         #expect(model.fixLoop == nil)
     }
 
+    // MARK: - Needs-attention + gave-up outcome legibility
+
+    @Test("a needs-attention reason naming the failing checks projects into the model")
+    func needsAttentionReasonProjects() {
+        // The ci-fix loop gave up; the Fleet overlaid a reason naming the still-
+        // failing checks. The card reads this to render its needs-attention banner
+        // (distinguishing "gave up" from "still working").
+        let reason = "Couldn't make CI green — no code-level fix found for: agent, build"
+        let state = ShepherdState(pullRequest: ref(), phase: .watching, needsAttention: reason)
+        let model = ShepherdCardModel(state: state)
+        #expect(model.state.needsAttention == reason)
+    }
+
+    @Test("no needs-attention by default and on a green success")
+    func noNeedsAttentionWhenHealthy() {
+        let summary = PRCheckSummary(checks: [
+            check("build", status: "COMPLETED", conclusion: "SUCCESS"),
+        ])
+        let state = ShepherdState(pullRequest: ref(), phase: .watching, checks: summary)
+        let model = ShepherdCardModel(state: state)
+        #expect(model.state.needsAttention == nil)
+        #expect(model.ciRollup == .passing)
+    }
+
+    @Test("a gave-up fix loop projects with the reason for the worker outcome banner")
+    func gaveUpFixLoopProjects() {
+        let loop = ShepherdFixLoopStatus(
+            phase: .gaveUp("gave up after 3 attempts; still failing: agent"),
+            failingCheck: "agent",
+            attempt: 3
+        )
+        let state = ShepherdState(pullRequest: ref(), phase: .watching)
+        let model = ShepherdCardModel(state: state, fixLoop: loop)
+        guard case let .gaveUp(reason) = model.fixLoop?.phase else {
+            Issue.record("expected gaveUp phase")
+            return
+        }
+        #expect(reason.contains("gave up after 3 attempts"))
+        #expect(reason.contains("agent"))
+    }
+
     // MARK: - Conversation comments
 
     private func conversationComment(_ id: String, author: String, body: String = "please fix") -> PRConversationComment {

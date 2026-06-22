@@ -232,7 +232,10 @@ struct ShepherdCard: View {
             return String(localized: "fleet.fixloop.succeeded", defaultValue: "Fix pushed; CI recovered")
         case .gaveUp(let reason):
             return String(
-                format: String(localized: "fleet.fixloop.gaveup", defaultValue: "Fix loop stopped: %@"),
+                format: String(
+                    localized: "fleet.fixloop.gaveup",
+                    defaultValue: "Gave up — needs attention: %@"
+                ),
                 reason
             )
         }

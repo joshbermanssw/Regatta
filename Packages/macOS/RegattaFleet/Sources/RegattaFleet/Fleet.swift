@@ -55,6 +55,14 @@ public actor Fleet {
     /// the mode without an `await` into the gate actor. Missing key ⇒ staged.
     private var modes: [String: AutonomyMode] = [:]
 
+    /// The per-PR "needs attention" reason set by the ci-fix loop when it gave up
+    /// without making CI green (cap hit or no-progress, issue #35). The watcher is
+    /// attention-agnostic and republishes a fresh state on every poll; the Fleet is
+    /// the authority for this flag, so it overlays the reason onto each snapshot —
+    /// otherwise the next poll would wipe the banner. Cleared when CI recovers or
+    /// the human resolves it. Missing key ⇒ no banner.
+    private var needsAttentionReasons: [String: String] = [:]
+
     /// Cascade hook run when a shepherd is dismissed, so the composition root can
     /// cancel everything that shepherd spawned — its ci-fix loop and any in-flight
     /// ephemeral workers — instead of leaving them running orphaned (the "dismiss
@@ -191,6 +199,28 @@ public actor Fleet {
         emit()
     }
 
+    /// Sets (or clears, with `nil`) the "needs attention" reason for a PR.
+    ///
+    /// The ci-fix loop's outcome pump calls this so a give-up (cap hit or no
+    /// code-level fix found) raises the shepherd card's needs-attention banner with
+    /// a reason that names the still-failing checks, and a recovery (CI went green)
+    /// clears it. The Fleet retains the reason and overlays it onto every snapshot
+    /// it emits — including the watcher's next poll — so the banner does not flicker
+    /// away on the following poll. Re-emits so the UI updates immediately.
+    public func setNeedsAttention(_ reason: String?, for pullRequest: PullRequestRef) {
+        if let reason {
+            needsAttentionReasons[pullRequest.id] = reason
+        } else {
+            needsAttentionReasons[pullRequest.id] = nil
+        }
+        emit()
+    }
+
+    /// The current "needs attention" reason for a PR, or `nil` if none is set.
+    public func needsAttention(for pullRequest: PullRequestRef) -> String? {
+        needsAttentionReasons[pullRequest.id]
+    }
+
     /// Sets the cascade hook run on ``dismiss(_:)`` so the composition root can
     /// cancel everything a dismissed shepherd spawned (its ci-fix loop + workers).
     ///
@@ -213,6 +243,7 @@ public actor Fleet {
         watchers[pullRequest.id] = nil
         latest[pullRequest.id] = nil
         modes[pullRequest.id] = nil
+        needsAttentionReasons[pullRequest.id] = nil
         // Cascade: cancel the shepherd's ci-fix loop and any workers it spawned so
         // nothing keeps polling/spawning after the card is gone.
         await dismissHandler(pullRequest)
@@ -244,15 +275,22 @@ public actor Fleet {
     /// authority for the mode, so it overlays it here.
     private func overlayMode(_ state: ShepherdState) -> ShepherdState {
         let mode = modes[state.id] ?? .staged
-        guard state.autonomyMode != mode else { return state }
+        // The Fleet owns the needs-attention reason (set by the ci-fix loop's
+        // outcome), so overlay it onto the watcher-published state. Otherwise the
+        // next poll would publish `needsAttention == nil` and wipe the banner.
+        let attention = needsAttentionReasons[state.id]
+        guard state.autonomyMode != mode || state.needsAttention != attention else {
+            return state
+        }
         return ShepherdState(
             pullRequest: state.pullRequest,
             phase: state.phase,
             checks: state.checks,
             reviewThreads: state.reviewThreads,
             conversationComments: state.conversationComments,
+            reviews: state.reviews,
             autonomyMode: mode,
-            needsAttention: state.needsAttention
+            needsAttention: attention
         )
     }
 

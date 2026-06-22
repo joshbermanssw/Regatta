@@ -184,6 +184,69 @@ struct FleetTests {
         #expect(await fleet.autonomyMode(for: other) == .staged)
     }
 
+    @Test("setNeedsAttention overlays a reason onto the shepherd snapshot")
+    func setNeedsAttentionOverlaysReason() async {
+        let fleet = makeFleet(FakePullRequestPoller())
+        await fleet.handoff(pr)
+
+        await fleet.setNeedsAttention("Couldn't make CI green — still failing: build", for: pr)
+
+        let snapshot = await fleet.currentSnapshots().first
+        #expect(snapshot?.needsAttention == "Couldn't make CI green — still failing: build")
+        #expect(await fleet.needsAttention(for: pr) == "Couldn't make CI green — still failing: build")
+    }
+
+    @Test("the needs-attention reason survives a later poll (overlay, not data)")
+    func needsAttentionSurvivesPoll() async {
+        // The watcher republishes a fresh state (needsAttention == nil) on every
+        // poll; the Fleet must overlay its retained reason so the banner persists.
+        let poller = FakePullRequestPoller(
+            checks: [PRCheck(name: "build", status: "COMPLETED", conclusion: "FAILURE", detailsURL: nil)],
+            threads: []
+        )
+        let fleet = makeFleet(poller)
+        let watcher = await fleet.handoff(pr)
+        await fleet.setNeedsAttention("gave up after 3 attempts", for: pr)
+
+        await watcher.pollOnce()
+
+        var found: String?
+        for _ in 0..<50 {
+            let snapshots = await fleet.currentSnapshots()
+            if let s = snapshots.first, s.phase == .watching {
+                found = s.needsAttention
+                break
+            }
+            await Task.yield()
+        }
+        #expect(found == "gave up after 3 attempts")
+    }
+
+    @Test("setNeedsAttention(nil) clears the reason when CI recovers")
+    func clearNeedsAttention() async {
+        let fleet = makeFleet(FakePullRequestPoller())
+        await fleet.handoff(pr)
+        await fleet.setNeedsAttention("gave up", for: pr)
+
+        await fleet.setNeedsAttention(nil, for: pr)
+
+        let snapshot = await fleet.currentSnapshots().first
+        #expect(snapshot?.needsAttention == nil)
+    }
+
+    @Test("dismiss clears a PR's needs-attention reason")
+    func dismissClearsNeedsAttention() async {
+        let fleet = makeFleet(FakePullRequestPoller())
+        await fleet.handoff(pr)
+        await fleet.setNeedsAttention("gave up", for: pr)
+
+        await fleet.dismiss(pr)
+        await fleet.handoff(pr) // re-handoff must start clean
+
+        let snapshot = await fleet.currentSnapshots().first
+        #expect(snapshot?.needsAttention == nil)
+    }
+
     @Test("snapshots() replays the current shepherd list to a new subscriber")
     func snapshotsReplays() async {
         let poller = FakePullRequestPoller()
