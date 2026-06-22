@@ -83,7 +83,15 @@ final class RegattaFleetManager {
         self.fleet = fleet
 
         // Seam A: the live spawner backs both reactors with real agent workers.
-        let spawner = OrchestratorWorkerSpawner(orchestrator: orchestrator)
+        // Bug 1: resolve each PR's real on-disk checkout from the Fleet's handoff
+        // map instead of defaulting to the launched app's `/` working directory.
+        // A PR with no recorded checkout resolves to `nil`, and the spawner then
+        // declines to run (surfaced cleanly) rather than failing inside `/`.
+        let directories = fleet.repositoryDirectories
+        let spawner = OrchestratorWorkerSpawner(
+            orchestrator: orchestrator,
+            repoURLResolver: { ref in await directories.directory(for: ref) }
+        )
         self.workerSpawner = spawner
 
         // CI-fix loop (#30): spawn a real worker on red checks, push through the
@@ -98,11 +106,14 @@ final class RegattaFleetManager {
 
         // Review-thread handler (#31): spawn a real addressing worker per new
         // reviewer comment, gated and writing back through the real `gh` writer.
+        // The self-login provider resolves the authenticated `gh` user so the
+        // reactor skips the user's own / already-answered threads (and all bots).
         let reviewThreadReactor = ReviewThreadReactor(
             spawner: spawner,
             writer: poller,
             gate: fleet.autonomyGate,
-            log: RegattaReviewThreadActivityLogger()
+            log: RegattaReviewThreadActivityLogger(),
+            selfLogin: { try? await poller.currentUserLogin() }
         )
         self.reviewThreadReactor = reviewThreadReactor
         self.reviewThreadBridge = FleetReviewThreadBridge(fleet: fleet, reactor: reviewThreadReactor)

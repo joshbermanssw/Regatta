@@ -33,8 +33,9 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
     private let orchestrator: RegattaOrchestrator
 
     /// Resolves the on-disk git repository a PR's worker should run against, or
-    /// `nil` if it cannot be resolved (the spawn then surfaces as "no change").
-    private let repoURLResolver: @Sendable (PullRequestRef) -> URL?
+    /// `nil` if it cannot be resolved (the spawn then surfaces as "no change"
+    /// instead of running an agent in the launched app's `/` working directory).
+    private let repoURLResolver: @Sendable (PullRequestRef) async -> URL?
 
     /// Detects whether a finished worker left changes in its worktree.
     private let diffProbe: any RegattaDiffProbing
@@ -46,16 +47,17 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
     ///
     /// - Parameters:
     ///   - orchestrator: The live orchestrator.
-    ///   - repoURLResolver: Maps a PR to its on-disk repository. Defaults to the
-    ///     process's current working directory's repo.
+    ///   - repoURLResolver: Maps a PR to its on-disk repository, captured from the
+    ///     handoff that started the shepherd. Defaults to a resolver that yields
+    ///     `nil` — there is **no** safe process-wide default (the app's working
+    ///     directory is `/`), so an unwired spawner declines to run rather than
+    ///     failing inside `/` with "the target directory is not a git repository".
     ///   - diffProbe: The worktree change-detection seam. Defaults to
     ///     ``RegattaGitDiffProbe``.
     ///   - provider: The agent provider. Defaults to ``ClaudeCodeProvider``.
     init(
         orchestrator: RegattaOrchestrator,
-        repoURLResolver: @escaping @Sendable (PullRequestRef) -> URL? = { _ in
-            URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        },
+        repoURLResolver: @escaping @Sendable (PullRequestRef) async -> URL? = { _ in nil },
         diffProbe: any RegattaDiffProbing = RegattaGitDiffProbe(),
         provider: any AgentProvider = ClaudeCodeProvider()
     ) {
@@ -73,14 +75,14 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
             pullRequest: spec.pullRequest,
             branch: spec.branch,
             orchestrator: orchestrator,
-            repoURL: repoURLResolver(spec.pullRequest),
+            repoURL: await repoURLResolver(spec.pullRequest),
             diffProbe: diffProbe,
             provider: provider
         )
     }
 
     func spawnWorker(for request: ReviewThreadWorkRequest) async throws -> ReviewThreadWorkResult {
-        guard let repoURL = repoURLResolver(request.pullRequest) else {
+        guard let repoURL = await repoURLResolver(request.pullRequest) else {
             // No local checkout to run against; report "nothing done" so the
             // reactor leaves the thread open for a later retry.
             return ReviewThreadWorkResult(pushedCodeChange: false, replyBody: nil, shouldResolve: false)
@@ -118,7 +120,7 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
     }
 
     func spawnWorker(for request: ConversationCommentWorkRequest) async throws -> ConversationCommentWorkResult {
-        guard let repoURL = repoURLResolver(request.pullRequest) else {
+        guard let repoURL = await repoURLResolver(request.pullRequest) else {
             // No local checkout to run against; report "nothing done" so the
             // reactor leaves the comment open for a later retry.
             return ConversationCommentWorkResult(pushedCodeChange: false, replyBody: nil)

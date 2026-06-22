@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 import RegattaGitHub
 @testable import RegattaFleet
 
@@ -27,6 +28,29 @@ struct FleetTests {
         #expect(shepherd?.kind == .shepherd)
         #expect(shepherd?.id == "manaflow-ai/cmux#28")
         #expect(await fleet.contains(pr) == true)
+    }
+
+    @Test("handoff records the PR's repo directory for the spawner (Bug 1)")
+    func handoffRecordsRepositoryDirectory() async {
+        let poller = FakePullRequestPoller()
+        let fleet = makeFleet(poller)
+        let repo = URL(fileURLWithPath: "/tmp/regatta-fixture-repo")
+
+        await fleet.handoff(pr, repositoryDirectory: repo)
+
+        let recorded = await fleet.repositoryDirectories.directory(for: pr)
+        #expect(recorded == repo)
+    }
+
+    @Test("a PR handed off without a directory resolves to nil (no / fallback)")
+    func handoffWithoutDirectoryResolvesNil() async {
+        let poller = FakePullRequestPoller()
+        let fleet = makeFleet(poller)
+
+        await fleet.handoff(pr) // no directory
+
+        let recorded = await fleet.repositoryDirectories.directory(for: pr)
+        #expect(recorded == nil)
     }
 
     @Test("handing the same PR off twice does not create a duplicate")

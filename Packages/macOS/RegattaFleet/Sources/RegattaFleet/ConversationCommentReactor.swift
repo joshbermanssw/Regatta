@@ -22,8 +22,11 @@ public import RegattaGitHub
 /// ## New-comment detection
 /// "New comment" is detected by diffing successive `conversationComments` polls
 /// against the set of comment IDs already handled (and those currently in
-/// flight). A comment is **actionable** when it is not authored by the shepherd
-/// and has a non-empty body.
+/// flight). A comment is **actionable** when it has a non-empty body and its
+/// author is actionable: it is **not** authored by the shepherd / current user,
+/// **not** authored by a bot (login ending in `[bot]`, e.g. `vercel[bot]`), and
+/// the current user has **not already replied after it** (already-answered
+/// guard).
 ///
 /// ## Idempotency
 /// Each comment id is handled **once**. The reactor records a comment id as
@@ -111,13 +114,19 @@ public actor ConversationCommentReactor {
     ///
     /// - Parameter state: The latest shepherd state.
     public func react(to state: ShepherdState) async {
-        let login = await resolveSelfLogin()
+        let policy = ShepherdAuthorPolicy(selfLogin: await resolveSelfLogin())
 
-        let newComments = state.conversationComments.filter { comment in
-            Self.isActionable(comment, selfLogin: login)
+        // The timeline position of the current user's most recent reply, if any.
+        // Anything at or before it has already been answered.
+        let lastSelfReplyIndex = Self.lastSelfReplyIndex(
+            in: state.conversationComments, policy: policy
+        )
+
+        let newComments = state.conversationComments.enumerated().filter { index, comment in
+            Self.isActionable(comment, at: index, policy: policy, lastSelfReplyIndex: lastSelfReplyIndex)
                 && !handled.contains(comment.id)
                 && !inFlight.contains(comment.id)
-        }
+        }.map(\.element)
         guard !newComments.isEmpty else { return }
 
         for comment in newComments {
@@ -140,18 +149,38 @@ public actor ConversationCommentReactor {
         return cachedSelfLogin
     }
 
-    /// A comment is actionable when it has a non-empty body and was **not**
-    /// authored by the shepherd itself (the self-reply loop guard).
+    /// The index of the current user's **most recent** comment in the timeline,
+    /// or `nil` if the user has not commented. Comments at or before this index
+    /// are treated as already answered. Returns `nil` when the login is
+    /// unresolved (the self rule cannot be applied).
+    private static func lastSelfReplyIndex(
+        in comments: [PRConversationComment], policy: ShepherdAuthorPolicy
+    ) -> Int? {
+        comments.lastIndex { policy.isSelf($0.author) }
+    }
+
+    /// A comment is actionable when it has a non-empty body, its author is
+    /// actionable (not a bot, not the current user — the self-reply loop guard),
+    /// **and** the current user has not already replied after it (already-answered
+    /// guard).
     ///
-    /// This guard is the core correctness requirement: the shepherd's own reply
-    /// is itself a conversation comment, so without skipping comments authored by
-    /// the authenticated `gh` user the shepherd would reply to its own replies
-    /// forever.
-    private static func isActionable(_ comment: PRConversationComment, selfLogin: String?) -> Bool {
+    /// The self-author guard is the core correctness requirement: the shepherd's
+    /// own reply is itself a conversation comment, so without skipping comments
+    /// authored by the authenticated `gh` user the shepherd would reply to its
+    /// own replies forever.
+    private static func isActionable(
+        _ comment: PRConversationComment,
+        at index: Int,
+        policy: ShepherdAuthorPolicy,
+        lastSelfReplyIndex: Int?
+    ) -> Bool {
         guard !comment.body.isEmpty else { return false }
-        if let selfLogin, !selfLogin.isEmpty, comment.author == selfLogin {
-            return false
-        }
+        // NOTE (commit 1 of 2): only the self-author guard is applied here; the
+        // bot-author and already-answered rules are intentionally not yet applied,
+        // so the new tests fail (red). Commit 2 applies the full policy.
+        _ = lastSelfReplyIndex
+        _ = index
+        if policy.isSelf(comment.author) { return false }
         return true
     }
 }

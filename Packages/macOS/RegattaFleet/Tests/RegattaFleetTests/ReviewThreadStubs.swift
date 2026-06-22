@@ -77,14 +77,39 @@ final class StubActivityLog: ReviewThreadActivityLogging, @unchecked Sendable {
 }
 
 /// Shorthand to build an open, commented review thread.
-func makeThread(_ id: String, resolved: Bool = false, outdated: Bool = false, comments: Int = 1) -> ReviewThread {
+///
+/// Every comment is authored by `author` (default `"reviewer"`), so the thread's
+/// last (actionable) comment carries that login — letting tests exercise the
+/// self-author / bot-author / already-answered skip rules.
+func makeThread(
+    _ id: String,
+    resolved: Bool = false,
+    outdated: Bool = false,
+    comments: Int = 1,
+    author: String = "reviewer"
+) -> ReviewThread {
     ReviewThread(
         id: id,
         isResolved: resolved,
         isOutdated: outdated,
         path: "Sources/\(id).swift",
         comments: (0..<comments).map {
-            ReviewComment(id: "\(id)-c\($0)", body: "please fix", author: "reviewer", url: "https://x/\(id)/\($0)")
+            ReviewComment(id: "\(id)-c\($0)", body: "please fix", author: author, url: "https://x/\(id)/\($0)")
+        }
+    )
+}
+
+/// Shorthand to build an open review thread from explicit comment authors, so a
+/// test can control the **author of each** comment (e.g. a reviewer comment
+/// followed by the current user's own reply — the "already answered" case).
+func makeThread(_ id: String, authors: [String]) -> ReviewThread {
+    ReviewThread(
+        id: id,
+        isResolved: false,
+        isOutdated: false,
+        path: "Sources/\(id).swift",
+        comments: authors.enumerated().map { index, author in
+            ReviewComment(id: "\(id)-c\(index)", body: "please fix", author: author, url: "https://x/\(id)/\(index)")
         }
     )
 }
