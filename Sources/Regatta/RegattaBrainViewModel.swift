@@ -184,8 +184,27 @@ final class RegattaBrainViewModel {
             }
         case .status(let s):
             status = s
+            // A turn that ends in `.failed` (e.g. an API-error `result`) must
+            // never be silent — surface it as a toast.
+            if case .failed(let detail) = s {
+                toasts.error(
+                    String(localized: "regatta.toast.brain.turnFailed.title", defaultValue: "Brain hit an error"),
+                    detail
+                )
+            }
         case .exited(let code):
             status = .exited(code)
+            // The subprocess died. A non-zero exit is an error; a zero exit
+            // (e.g. the user-driven shutdown) is not surfaced.
+            if code != 0 {
+                toasts.error(
+                    String(localized: "regatta.toast.brain.exited.title", defaultValue: "Brain stopped unexpectedly"),
+                    String(
+                        localized: "regatta.toast.brain.exited.message",
+                        defaultValue: "The brain process exited with code \(code)."
+                    )
+                )
+            }
         }
     }
 }
