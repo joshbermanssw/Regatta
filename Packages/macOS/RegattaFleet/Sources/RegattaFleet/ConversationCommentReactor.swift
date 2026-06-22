@@ -140,12 +140,18 @@ public actor ConversationCommentReactor {
         return cachedSelfLogin
     }
 
-    /// A comment is actionable when it has a non-empty body.
+    /// A comment is actionable when it has a non-empty body and was **not**
+    /// authored by the shepherd itself (the self-reply loop guard).
     ///
-    /// NOTE (commit 1 of the red/green pair): the self-author loop guard is added
-    /// in the follow-up commit. Without it, the shepherd reacts to its own replies.
+    /// This guard is the core correctness requirement: the shepherd's own reply
+    /// is itself a conversation comment, so without skipping comments authored by
+    /// the authenticated `gh` user the shepherd would reply to its own replies
+    /// forever.
     private static func isActionable(_ comment: PRConversationComment, selfLogin: String?) -> Bool {
         guard !comment.body.isEmpty else { return false }
+        if let selfLogin, !selfLogin.isEmpty, comment.author == selfLogin {
+            return false
+        }
         return true
     }
 }
