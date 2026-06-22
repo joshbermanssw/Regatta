@@ -167,14 +167,6 @@ final class RegattaSummonViewModel {
         }
     }
 
-    /// Removes a worker from the grid entirely (cancelling first if still running),
-    /// so finished or failed workers can be cleared.
-    ///
-    /// - Parameter id: The worker to remove.
-    func removeWorker(_ id: UUID) {
-        Task { await orchestrator.removeWorker(id) }
-    }
-
     // MARK: - Default spawn spec
 
     /// The default ``WorkerSpec`` used by the spawn tile: a `claude` agent run in
