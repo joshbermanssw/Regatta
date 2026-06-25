@@ -36,6 +36,21 @@ public actor BrainSession {
     private var userCounter = 0
     private var assistantCounter = 0
     private var finished = false
+
+    /// Ordered, lock-protected handoff of raw stdout chunks from the off-actor
+    /// `readabilityHandler` into the actor.
+    ///
+    /// The readability callback fires serially and delivers chunks in stream
+    /// order, but each callback previously hopped onto the actor via its own
+    /// unstructured `Task { await ingest(...) }`. Unstructured tasks have **no
+    /// ordering guarantee** relative to one another, so when stdout split across
+    /// reads (e.g. the two text deltas, or a delta and the terminal `result`,
+    /// landed in separate chunks) the actor could process them out of order —
+    /// concatenating deltas backwards ("twoecho: ") or finalizing the turn
+    /// before a delta, which started a spurious second assistant message (the
+    /// "got 3 messages" flake). We instead enqueue every chunk into this FIFO
+    /// under a lock and drain it strictly in arrival order on the actor.
+    private let pending = ChunkQueue()
     /// Set once ``stop()`` is invoked, so the resulting termination is reported
     /// as a clean exit (code 0) rather than a SIGTERM signal number that the UI
     /// would mistake for an unexpected crash.
@@ -96,15 +111,23 @@ public actor BrainSession {
         continuation.yield(.status(.idle))
 
         // Non-blocking, callback-driven stdout consumption.
+        //
+        // The handler enqueues each chunk (or an EOF marker) into `pending` in
+        // arrival order, then kicks a drain on the actor. Multiple kicks are
+        // harmless: each drain consumes whatever is queued, in order, so chunks
+        // are never reordered even though the unstructured `Task`s themselves
+        // race to acquire the actor.
         let readHandle = stdoutPipe.fileHandleForReading
+        let pending = self.pending
         readHandle.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             if data.isEmpty {
                 handle.readabilityHandler = nil
-                Task { await self?.handleStreamEnd() }
+                pending.enqueueEnd()
             } else {
-                Task { await self?.ingest(data) }
+                pending.enqueue(data)
             }
+            Task { await self?.drainPending() }
         }
         self.readHandle = readHandle
 
@@ -161,14 +184,28 @@ public actor BrainSession {
 
     // MARK: - Private (actor-isolated stream handling)
 
-    /// Appends a raw stdout chunk and processes any complete newline-delimited
-    /// lines. Runs on the actor; the readability callback hops here in order.
-    private func ingest(_ data: Data) {
-        readBuffer.append(data)
-        while let newlineIndex = readBuffer.firstIndex(of: 0x0A) {
-            let lineData = readBuffer.subdata(in: readBuffer.startIndex..<newlineIndex)
-            readBuffer.removeSubrange(readBuffer.startIndex...newlineIndex)
-            consume(line: lineData)
+    /// Drains the ordered chunk FIFO on the actor, appending each chunk to the
+    /// line buffer and parsing every complete newline-delimited line.
+    ///
+    /// Because the FIFO preserves stream order and the actor serializes this
+    /// method, chunks are processed exactly in the order the kernel produced
+    /// them — even when several `readabilityHandler` invocations enqueue before
+    /// any drain runs. A JSON line split across two chunks stays buffered in
+    /// `readBuffer` until its trailing newline arrives, so it is never dropped
+    /// or mis-parsed.
+    private func drainPending() {
+        while let item = pending.dequeue() {
+            switch item {
+            case .data(let data):
+                readBuffer.append(data)
+                while let newlineIndex = readBuffer.firstIndex(of: 0x0A) {
+                    let lineData = readBuffer.subdata(in: readBuffer.startIndex..<newlineIndex)
+                    readBuffer.removeSubrange(readBuffer.startIndex...newlineIndex)
+                    consume(line: lineData)
+                }
+            case .end:
+                handleStreamEnd()
+            }
         }
     }
 
@@ -329,5 +366,42 @@ public actor BrainSession {
         continuation?.yield(.exited(code: reportedCode))
         continuation?.finish()
         continuation = nil
+    }
+}
+
+/// A lock-protected FIFO of raw stdout chunks (and a terminal EOF marker) that
+/// hands data from the off-actor `FileHandle.readabilityHandler` into the actor
+/// in strict arrival order.
+///
+/// `Sendable` and self-synchronizing so it can be captured by the readability
+/// callback and read by the actor without data races. Ordering is the whole
+/// point: it is what the previous per-chunk `Task { await ingest(...) }` failed
+/// to guarantee.
+private final class ChunkQueue: @unchecked Sendable {
+    enum Item {
+        case data(Data)
+        case end
+    }
+
+    private let lock = NSLock()
+    private var items: [Item] = []
+
+    func enqueue(_ data: Data) {
+        lock.lock()
+        items.append(.data(data))
+        lock.unlock()
+    }
+
+    func enqueueEnd() {
+        lock.lock()
+        items.append(.end)
+        lock.unlock()
+    }
+
+    func dequeue() -> Item? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !items.isEmpty else { return nil }
+        return items.removeFirst()
     }
 }
