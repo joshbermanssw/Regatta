@@ -427,11 +427,15 @@ struct OrchestratorWorkerSpawnerTests {
         )
         // Poller reports all checks green so the loop condition stops on success.
         let poller = TestGreenPoller()
+        // Resolve the PR's real head branch (as the composition root does at
+        // handoff) so the gate-routed push targets it rather than being declined
+        // for an unresolved branch.
         let reactor = CIFixReactor(
             spawner: spawner,
             gate: AllowAllOutwardActionGate(),
             poller: poller,
-            maxIterations: 3
+            maxIterations: 3,
+            headBranchResolver: { _ in "feature/fix-ci" }
         )
         let outcome = await reactor.runFixLoop(for: ref())
         #expect(outcome == .greenSuccess)
