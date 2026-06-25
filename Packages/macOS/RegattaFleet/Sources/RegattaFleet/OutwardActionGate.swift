@@ -24,9 +24,13 @@ public enum OutwardAction: Sendable, Equatable {
     case resolveThread(threadID: String)
 
     /// Push a code change addressing a review thread (issue #31).
-    /// - Parameter threadID: The GitHub node ID of the thread the change
-    ///   addresses.
-    case pushCodeChange(threadID: String)
+    /// - Parameters:
+    ///   - threadID: The GitHub node ID of the thread the change addresses.
+    ///   - branch: The PR head branch the push targets (`git push origin
+    ///     HEAD:<branch>`). Carried so the production ``GitPushActionExecutor`` can
+    ///     run the real push — without it the executor throws
+    ///     ``GitPushActionError/missingBranch`` and the gate denies the push.
+    case pushCodeChange(threadID: String, branch: String)
 
     /// Post a reply to a top-level PR conversation comment.
     /// - Parameters:
@@ -35,9 +39,12 @@ public enum OutwardAction: Sendable, Equatable {
     case replyToConversation(commentID: String, body: String)
 
     /// Push a code change addressing a top-level PR conversation comment.
-    /// - Parameter commentID: The id of the conversation comment the change
-    ///   addresses.
-    case pushConversationChange(commentID: String)
+    /// - Parameters:
+    ///   - commentID: The id of the conversation comment the change addresses.
+    ///   - branch: The PR head branch the push targets (`git push origin
+    ///     HEAD:<branch>`). Carried so the production ``GitPushActionExecutor`` can
+    ///     run the real push.
+    case pushConversationChange(commentID: String, branch: String)
 
     /// Post a reply to a reviewer's submitted review (review summary).
     /// - Parameters:
@@ -47,8 +54,12 @@ public enum OutwardAction: Sendable, Equatable {
 
     /// Push a code change addressing a reviewer's submitted review (review
     /// summary).
-    /// - Parameter reviewID: The id of the review the change addresses.
-    case pushReviewChange(reviewID: String)
+    /// - Parameters:
+    ///   - reviewID: The id of the review the change addresses.
+    ///   - branch: The PR head branch the push targets (`git push origin
+    ///     HEAD:<branch>`). Carried so the production ``GitPushActionExecutor`` can
+    ///     run the real push.
+    case pushReviewChange(reviewID: String, branch: String)
 }
 
 /// The verdict the gate returns for a requested outward action.

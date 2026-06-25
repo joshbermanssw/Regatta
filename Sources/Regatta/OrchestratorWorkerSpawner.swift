@@ -164,7 +164,7 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
             return ReviewThreadWorkResult(pushedCodeChange: false, replyBody: nil, shouldResolve: false)
         }
 
-        let pushed = await producedChanges(workerID: id)
+        let pushed = await producedChanges(workerID: id, for: request.pullRequest)
         if pushed {
             return ReviewThreadWorkResult(
                 pushedCodeChange: true,
@@ -205,7 +205,7 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
             return ConversationCommentWorkResult(pushedCodeChange: false, replyBody: nil)
         }
 
-        let pushed = await producedChanges(workerID: id)
+        let pushed = await producedChanges(workerID: id, for: request.pullRequest)
         if pushed {
             return ConversationCommentWorkResult(
                 pushedCodeChange: true,
@@ -251,7 +251,7 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
             return ReviewSummaryWorkResult(pushedCodeChange: false, replyBody: nil)
         }
 
-        let pushed = await producedChanges(workerID: id)
+        let pushed = await producedChanges(workerID: id, for: request.pullRequest)
         if pushed {
             return ReviewSummaryWorkResult(
                 pushedCodeChange: true,
@@ -374,9 +374,19 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
     /// catch a *clean-but-committed* worktree (the common case). Probing only for
     /// uncommitted changes would miss a worker that committed its fix and report a
     /// false "no fix" — the bug that made the loop respawn forever.
-    private func producedChanges(workerID: UUID) async -> Bool {
+    ///
+    /// When the worker produced work, this also **records its worktree** into the
+    /// shared worktree store keyed by PR, so the gate-routed
+    /// ``GitPushActionExecutor`` resolves exactly the commits the addressing agent
+    /// made — the same machinery the ci-fix path uses. Without this the addressing
+    /// push would have no worktree and the executor would throw `noWorktree`.
+    private func producedChanges(workerID: UUID, for pullRequest: PullRequestRef) async -> Bool {
         guard let worktree = await orchestrator.worktree(for: workerID) else { return false }
-        return (try? await diffProbe.hasProducedWork(at: worktree.path)) ?? false
+        let produced = (try? await diffProbe.hasProducedWork(at: worktree.path)) ?? false
+        if produced {
+            await ciFixWorktreeStore?.record(worktree.path, for: pullRequest)
+        }
+        return produced
     }
 
     /// Builds the addressing prompt from the thread's most recent comment.

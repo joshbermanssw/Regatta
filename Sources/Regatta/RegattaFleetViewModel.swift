@@ -65,6 +65,13 @@ final class RegattaFleetViewModel {
     @ObservationIgnored
     private let toasts: RegattaToastCenter
 
+    /// The shared cancel action a worker-row ✕ routes through. It must cancel the
+    /// worker **and** stop its shepherd's reactors so the ci-fix loop does not
+    /// respawn a replacement (I1). Defaults to ``RegattaFleetManager/cancelWorker(_:)``
+    /// — the one shared path the dismiss cascade also uses; tests inject a stub.
+    @ObservationIgnored
+    private let workerCanceller: @Sendable (UUID) async -> Void
+
     @ObservationIgnored
     private var workerTask: Task<Void, Never>?
     @ObservationIgnored
@@ -86,11 +93,17 @@ final class RegattaFleetViewModel {
     init(
         orchestrator: RegattaOrchestrator? = nil,
         fleet: Fleet? = nil,
-        toasts: RegattaToastCenter = .shared
+        toasts: RegattaToastCenter = .shared,
+        workerCanceller: (@Sendable (UUID) async -> Void)? = nil
     ) {
         self.orchestrator = orchestrator ?? RegattaFleetManager.shared.orchestrator
         self.fleet = fleet ?? RegattaFleetManager.shared.fleet
         self.toasts = toasts
+        // Default to the shared manager cancel path (cancels worker + stops the
+        // shepherd's reactors so the loop can't respawn — I1). Tests inject a stub.
+        self.workerCanceller = workerCanceller ?? { id in
+            await RegattaFleetManager.shared.cancelWorker(id)
+        }
     }
 
     // MARK: - Lifecycle
@@ -156,23 +169,18 @@ final class RegattaFleetViewModel {
         return id
     }
 
-    /// Cancels a worker from the Fleet list. Emits a toast on success/failure.
+    /// Cancels a worker from the Fleet list, routed through the shared cancel path
+    /// so the worker is cancelled **and** its shepherd's reactors are stopped (the
+    /// ci-fix loop cannot respawn a replacement — I1). Emits a toast.
     func cancelWorker(_ id: UUID) {
         let name = workers.first { $0.id == id }?.name
         Task { [weak self] in
             guard let self else { return }
-            do {
-                try await self.orchestrator.cancelWorker(id)
-                self.toasts.info(
-                    String(localized: "regatta.toast.worker.cancelled.title", defaultValue: "Worker cancelled"),
-                    name
-                )
-            } catch {
-                self.toasts.error(
-                    String(localized: "regatta.toast.worker.cancelFailed.title", defaultValue: "Couldn't cancel worker"),
-                    name
-                )
-            }
+            await self.workerCanceller(id)
+            self.toasts.info(
+                String(localized: "regatta.toast.worker.cancelled.title", defaultValue: "Worker cancelled"),
+                name
+            )
         }
     }
 

@@ -179,7 +179,12 @@ final class RegattaFleetManager {
             writer: poller,
             gate: fleet.autonomyGate,
             log: RegattaReviewThreadActivityLogger(),
-            selfLogin: { try? await poller.currentUserLogin() }
+            selfLogin: { try? await poller.currentUserLogin() },
+            // Resolve the PR head branch (captured at handoff) so the gate-routed
+            // addressing push targets the PR's branch — mirroring ci-fix. A PR with
+            // no recorded branch resolves to `nil` and the worker declines the push
+            // rather than pushing to a junk branch (C1 decline guard).
+            headBranchResolver: { ref in await headBranches.branch(for: ref) }
         )
         self.reviewThreadReactor = reviewThreadReactor
         self.reviewThreadBridge = FleetReviewThreadBridge(fleet: fleet, reactor: reviewThreadReactor)
@@ -193,7 +198,8 @@ final class RegattaFleetManager {
             writer: poller,
             gate: fleet.autonomyGate,
             log: RegattaConversationCommentActivityLogger(),
-            selfLogin: { try? await poller.currentUserLogin() }
+            selfLogin: { try? await poller.currentUserLogin() },
+            headBranchResolver: { ref in await headBranches.branch(for: ref) }
         )
         self.conversationCommentReactor = conversationCommentReactor
         self.conversationCommentBridge = FleetConversationCommentBridge(
@@ -210,7 +216,8 @@ final class RegattaFleetManager {
             writer: poller,
             gate: fleet.autonomyGate,
             log: RegattaReviewSummaryActivityLogger(),
-            selfLogin: { try? await poller.currentUserLogin() }
+            selfLogin: { try? await poller.currentUserLogin() },
+            headBranchResolver: { ref in await headBranches.branch(for: ref) }
         )
         self.reviewSummaryReactor = reviewSummaryReactor
         self.reviewSummaryBridge = FleetReviewSummaryBridge(
@@ -220,15 +227,32 @@ final class RegattaFleetManager {
         // Dismiss cascade: when a shepherd card's ✕ dismisses a PR, cancel
         // everything that shepherd spawned so nothing keeps polling/spawning
         // orphaned (the dogfooded runaway). This cancels the ci-fix "until green"
-        // loop and every in-flight worker the PR owns (ci-fix iteration worker +
-        // review/conversation/review-summary addressing workers).
-        Task { [fleet, ciFixReactor, orchestrator, workerRegistry] in
+        // loop, forgets the three addressing reactors' per-PR state (so they stop
+        // and a stale snapshot can't re-trigger — I2), and cancels every in-flight
+        // worker the PR owns (ci-fix iteration worker + review/conversation/
+        // review-summary addressing workers).
+        Task { [
+            fleet, ciFixReactor, reviewThreadReactor, conversationCommentReactor,
+            reviewSummaryReactor, orchestrator, workerRegistry
+        ] in
             await fleet.setDismissHandler { pr in
-                await ciFixReactor.cancel(for: pr)
-                for workerID in await workerRegistry.workerIDs(for: pr) {
-                    try? await orchestrator.cancelWorker(workerID)
-                }
-                await workerRegistry.removeAll(for: pr)
+                await Self.stopShepherd(
+                    pr,
+                    ciFixReactor: ciFixReactor,
+                    reviewThreadReactor: reviewThreadReactor,
+                    conversationCommentReactor: conversationCommentReactor,
+                    reviewSummaryReactor: reviewSummaryReactor,
+                    orchestrator: orchestrator,
+                    workerRegistry: workerRegistry
+                )
+            }
+            // Re-arm cascade: a (re-)handoff clears the addressing reactors'
+            // dismissed-guard and the ci-fix needs-attention/cancel flags so a PR
+            // dismissed earlier genuinely resumes when handed off again (I2).
+            await fleet.setHandoffHandler { pr in
+                await reviewThreadReactor.rearm(for: pr)
+                await conversationCommentReactor.rearm(for: pr)
+                await reviewSummaryReactor.rearm(for: pr)
             }
         }
 
@@ -247,6 +271,58 @@ final class RegattaFleetManager {
             await conversationCommentBridge.start()
             await reviewSummaryBridge.start()
         }
+    }
+
+    /// Cancels a single ephemeral worker from the Fleet's worker list **and** stops
+    /// its shepherd's reactors so the ci-fix loop does not respawn a replacement —
+    /// the shared cancel path the worker-row ✕ routes through (I1).
+    ///
+    /// Before this, the Fleet ✕ on a worker row cancelled only the orchestrator
+    /// worker, leaving the ci-fix reactor's "until green" loop free to spawn another
+    /// the next poll (the respawn-after-cancel hole). This maps the worker back to
+    /// its PR and runs the **same** per-PR stop the dismiss cascade uses, so the one
+    /// shared path is honoured (CLAUDE.md shared-behavior policy).
+    ///
+    /// - Parameter id: The worker id to cancel.
+    func cancelWorker(_ id: UUID) async {
+        // Resolve the worker's PR BEFORE cancelling — cancellation clears the
+        // registry record, after which the reverse lookup would return nil.
+        let pr = await workerRegistry.pullRequest(for: id)
+        try? await orchestrator.cancelWorker(id)
+        guard let pr else { return }
+        await Self.stopShepherd(
+            pr,
+            ciFixReactor: ciFixReactor,
+            reviewThreadReactor: reviewThreadReactor,
+            conversationCommentReactor: conversationCommentReactor,
+            reviewSummaryReactor: reviewSummaryReactor,
+            orchestrator: orchestrator,
+            workerRegistry: workerRegistry
+        )
+    }
+
+    /// The single per-PR "stop everything this shepherd spawned" action, shared by
+    /// the dismiss cascade and the worker-row ✕ (I1/I2). Cancels the ci-fix loop,
+    /// forgets the three addressing reactors' per-PR state (so a stale snapshot
+    /// can't re-trigger), cancels every in-flight worker the PR owns, and clears the
+    /// PR's ownership records.
+    private static func stopShepherd(
+        _ pr: PullRequestRef,
+        ciFixReactor: CIFixReactor,
+        reviewThreadReactor: ReviewThreadReactor,
+        conversationCommentReactor: ConversationCommentReactor,
+        reviewSummaryReactor: ReviewSummaryReactor,
+        orchestrator: RegattaOrchestrator,
+        workerRegistry: ShepherdWorkerRegistry
+    ) async {
+        await ciFixReactor.cancel(for: pr)
+        await reviewThreadReactor.forget(for: pr)
+        await conversationCommentReactor.forget(for: pr)
+        await reviewSummaryReactor.forget(for: pr)
+        for workerID in await workerRegistry.workerIDs(for: pr) {
+            try? await orchestrator.cancelWorker(workerID)
+        }
+        await workerRegistry.removeAll(for: pr)
     }
 
     /// Resumes persisted PR shepherds into the live Fleet on launch (issue #34).

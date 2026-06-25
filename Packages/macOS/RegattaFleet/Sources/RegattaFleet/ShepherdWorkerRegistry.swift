@@ -22,12 +22,18 @@ public actor ShepherdWorkerRegistry {
     /// Running worker ids per PR, keyed by ``PullRequestRef/id``.
     private var workers: [String: Set<UUID>] = [:]
 
+    /// Reverse map: worker id → the PR that owns it, so the Fleet ✕ on a single
+    /// worker row can route the cancel through the same per-PR reactor stop the
+    /// dismiss cascade uses (I1). Kept in sync with ``workers``.
+    private var owners: [UUID: PullRequestRef] = [:]
+
     /// Creates an empty registry.
     public init() {}
 
     /// Records that `workerID` is now running for `pullRequest`.
     public func record(_ workerID: UUID, for pullRequest: PullRequestRef) {
         workers[pullRequest.id, default: []].insert(workerID)
+        owners[workerID] = pullRequest
     }
 
     /// Clears `workerID` from `pullRequest`'s owned set once it terminates.
@@ -36,6 +42,7 @@ public actor ShepherdWorkerRegistry {
         if workers[pullRequest.id]?.isEmpty == true {
             workers[pullRequest.id] = nil
         }
+        owners[workerID] = nil
     }
 
     /// The worker ids currently owned by `pullRequest`, for a dismiss cascade.
@@ -43,9 +50,20 @@ public actor ShepherdWorkerRegistry {
         Array(workers[pullRequest.id] ?? [])
     }
 
+    /// The PR that currently owns `workerID`, or `nil` if it is unknown/cleared.
+    ///
+    /// The Fleet ✕ on a worker row uses this to find the PR whose reactor must also
+    /// be stopped, so cancelling a worker routes through the same shared per-PR stop
+    /// the dismiss cascade uses (I1: a worker ✕ must not leave the loop respawning).
+    public func pullRequest(for workerID: UUID) -> PullRequestRef? {
+        owners[workerID]
+    }
+
     /// Drops all ownership records for `pullRequest` (after a dismiss cascade has
     /// cancelled them), so a re-handoff starts clean.
     public func removeAll(for pullRequest: PullRequestRef) {
+        let ids = workers[pullRequest.id] ?? []
+        for id in ids { owners[id] = nil }
         workers[pullRequest.id] = nil
     }
 }
