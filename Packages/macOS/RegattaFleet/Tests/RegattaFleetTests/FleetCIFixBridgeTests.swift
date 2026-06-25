@@ -22,15 +22,22 @@ struct FleetCIFixBridgeTests {
         }
 
         // Reactor's own loop re-polls and immediately sees green, so the loop ends.
+        // Resolve the PR's head branch from the Fleet's store, as production does.
         let spawner = StubWorkerSpawner(producesFix: true)
         let gate = StubOutwardActionGate(verdict: .allowed)
         let loopPoller = SequencedPullRequestPoller([.checks(green())])
-        let reactor = CIFixReactor(spawner: spawner, gate: gate, poller: loopPoller)
+        let headBranches = fleet.headBranches
+        let reactor = CIFixReactor(
+            spawner: spawner,
+            gate: gate,
+            poller: loopPoller,
+            headBranchResolver: { ref in await headBranches.branch(for: ref) }
+        )
 
         let bridge = FleetCIFixBridge(fleet: fleet, reactor: reactor)
         await bridge.start()
 
-        let watcher = await fleet.handoff(pr)
+        let watcher = await fleet.handoff(pr, repositoryDirectory: nil, headBranch: "feature/fix-ci")
         await watcher.pollOnce() // publishes a failing ShepherdState into the Fleet
 
         // Wait for the bridge to forward the failing snapshot and the reactor to spawn.
@@ -87,19 +94,26 @@ struct FleetCIFixBridgeTests {
             ShepherdWatcher(pullRequest: ref, poller: fleetPoller)
         }
         // Pre-set a stale banner from an earlier give-up.
-        await fleet.handoff(pr)
+        await fleet.handoff(pr, repositoryDirectory: nil, headBranch: "feature/fix-ci")
         await fleet.setNeedsAttention("stale give-up", for: pr)
 
         // The reactor's loop re-polls green immediately → greenSuccess.
+        // Resolve the PR's head branch from the Fleet's store, as production does.
         let spawner = StubWorkerSpawner(producesFix: true)
         let gate = StubOutwardActionGate(verdict: .allowed)
         let loopPoller = SequencedPullRequestPoller([.checks(green())])
-        let reactor = CIFixReactor(spawner: spawner, gate: gate, poller: loopPoller)
+        let headBranches = fleet.headBranches
+        let reactor = CIFixReactor(
+            spawner: spawner,
+            gate: gate,
+            poller: loopPoller,
+            headBranchResolver: { ref in await headBranches.branch(for: ref) }
+        )
 
         let bridge = FleetCIFixBridge(fleet: fleet, reactor: reactor)
         await bridge.start()
 
-        let watcher = await fleet.handoff(pr)
+        let watcher = await fleet.handoff(pr, repositoryDirectory: nil, headBranch: "feature/fix-ci")
         await watcher.pollOnce()
 
         var cleared = false

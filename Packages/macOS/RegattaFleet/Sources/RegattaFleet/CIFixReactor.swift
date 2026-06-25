@@ -235,11 +235,15 @@ public actor CIFixReactor {
     public func runFixLoop(for pullRequest: PullRequestRef) async -> CIFixOutcome {
         let id = pullRequest.id
         // Resolve the PR's real head branch so the gate-routed push targets the PR
-        // (`git push origin HEAD:<headBranch>`). When unknown, fall back to the
-        // PR head branch resolver returning `nil`; the loop then declines to push
-        // to a wrong branch and reports needs-attention if the worker produced a fix.
+        // (`git push origin HEAD:<headBranch>`). When the head branch is unknown
+        // (no handoff recorded it, or a store miss) the resolver returns `nil`: the
+        // loop must NOT fall back to pushing `HEAD:<repoName>` — that lands the fix
+        // on a junk branch named after the repo, so the PR's CI never goes green and
+        // the loop spins to the cap (the wrong-push-branch bug the e2e test exposed,
+        // and that the production composition root assumes is handled here). The spec
+        // carries an empty branch in that case and the push is declined below.
         let headBranch = await headBranchResolver(pullRequest)
-        let spec = CIFixWorkerSpec(pullRequest: pullRequest, branch: headBranch ?? pullRequest.repo)
+        let spec = CIFixWorkerSpec(pullRequest: pullRequest, branch: headBranch ?? "")
         let worker = await spawner.spawn(spec)
         let condition = makeCondition(pullRequest)
 
@@ -263,6 +267,14 @@ public actor CIFixReactor {
 
             let producedFix = attempt == .produced
             if producedFix {
+                // The worker produced a fix, but we never resolved the PR's real head
+                // branch — pushing now would target a wrong branch. Decline and flag
+                // for the human instead of corrupting the PR with a junk-branch push.
+                guard !spec.branch.isEmpty else {
+                    return .needsAttention(
+                        reason: "Couldn't make CI green — a fix is ready but the PR's head branch couldn't be resolved, so the push was held to avoid pushing to the wrong branch"
+                    )
+                }
                 // The worker committed locally (it is prompted to commit, not push).
                 // Route the *push* of those commits through the autonomy gate so a
                 // staged PR holds it for approval and an auto PR pushes immediately.

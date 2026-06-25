@@ -26,13 +26,27 @@ struct CIFixReactorTests {
         ShepherdState(pullRequest: pr, phase: .watching, checks: PRCheckSummary(checks: green()))
     }
 
+    /// The PR's real head branch the composition root resolves at handoff. Tests
+    /// default to a real branch so the push path targets it (not the repo name);
+    /// the unresolved-branch path is covered explicitly by its own test.
+    private static let headBranch = "feature/fix-ci"
+
     private func makeReactor(
         spawner: StubWorkerSpawner,
         gate: StubOutwardActionGate,
         poller: SequencedPullRequestPoller,
-        maxIterations: Int = 5
+        maxIterations: Int = 5,
+        headBranch: String? = CIFixReactorTests.headBranch
     ) -> CIFixReactor {
-        CIFixReactor(spawner: spawner, gate: gate, poller: poller, maxIterations: maxIterations)
+        CIFixReactor(
+            spawner: spawner,
+            gate: gate,
+            maxIterations: maxIterations,
+            headBranchResolver: { _ in headBranch },
+            makeCondition: { ref in
+                CIFixLoopCondition(pullRequest: ref, poller: poller, maxIterations: maxIterations)
+            }
+        )
     }
 
     @Test("a check failure spawns a ci-fix worker scoped to the PR")
@@ -81,7 +95,7 @@ struct CIFixReactorTests {
         // Pushed once per iteration before it went green (iterations 0 and 1).
         #expect(gate.requestCount == 3)
         #expect(gate.requested.allSatisfy {
-            $0 == .pushFix(pullRequest: pr, branch: pr.repo)
+            $0 == .pushFix(pullRequest: pr, branch: Self.headBranch)
         })
     }
 
