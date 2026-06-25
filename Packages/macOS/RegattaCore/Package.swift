@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "RegattaCore",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v14),
     ],
@@ -16,6 +17,7 @@ let package = Package(
     targets: [
         .target(
             name: "RegattaCore",
+            resources: [ .process("Localizable.xcstrings") ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

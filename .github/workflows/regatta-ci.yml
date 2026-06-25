@@ -172,7 +172,17 @@ jobs:
           [ -f cmuxTests/RegattaFeatureFlagTests.swift ] && SUITES+=("cmuxTests/RegattaFeatureFlagTests")
           [ -f cmuxTests/Regatta/RegattaRailModeTests.swift ] && SUITES+=("cmuxTests/RegattaRailModeTests")
           [ -f cmuxTests/Regatta/RegattaBlueMatrixDefaultThemeTests.swift ] && SUITES+=("cmuxTests/RegattaBlueMatrixDefaultThemeTests")
-          [ -f cmuxTests/Regatta/OrchestratorWorkerSpawnerTests.swift ] && SUITES+=("cmuxTests/OrchestratorWorkerSpawnerTests")
+          # NOTE: OrchestratorWorkerSpawnerTests was removed. It was an app-host Swift
+          # Testing suite that spawned a real RegattaOrchestrator + worktrees + subprocess
+          # agent; the app-host XCTest invocation dies on this suite in CI with zero output
+          # (exit 65) — an app-host harness incompatibility, not an assertion failure — and
+          # blocked every PR. Its behavior is covered headlessly under `swift test`:
+          #  - orchestrator → worktree → diff → push pipeline: RegattaFleet
+          #    RegattaPipelineEndToEndTests (LiveOrchestratorSpawner over the real seams);
+          #  - exit-127 absolute-executable resolution + binary-name strip:
+          #    RegattaCore WorkerAgentExecutableResolutionTests;
+          #  - SIGKILL/SIGTERM cancel-stop classification:
+          #    RegattaCore RegattaCancellationExitTests.
           if [ "${#SUITES[@]}" -eq 0 ]; then
             echo "No Regatta test suites present on this branch; build-for-testing was the gate."
             exit 0
