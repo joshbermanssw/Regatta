@@ -99,6 +99,29 @@ struct ConversationCommentTests {
         #expect(args.contains("42"))
         #expect(args.contains("--repo"))
         #expect(args.contains("joshbermanssw/regatta"))
-        #expect(args.contains("Addressed `that` & more."))
+        // The body is passed as the single-token `--body=<value>` form so shell
+        // metacharacters are inert and a leading dash can't be misparsed as a flag.
+        #expect(args.contains("--body=Addressed `that` & more."))
+        // It must NOT be split into a separate `--body` flag + value token.
+        #expect(!args.contains("--body"))
+    }
+
+    @Test("postConversationComment passes a dash-leading body as one --body= token")
+    func postCommentDashLeadingBody() async throws {
+        let runner = RecordingRunner(outputs: [""])
+        let poller = GitHubPoller(commandRunner: runner)
+
+        // A markdown bullet list begins with "- ", which `gh` would treat as an
+        // unknown flag if the body were passed as a separate argument token.
+        let body = "- fixed the null check\n- added a test"
+        try await poller.postConversationComment(
+            owner: "o", repo: "r", prNumber: 7, body: body
+        )
+
+        let calls = await runner.recordedCalls()
+        let args = try #require(calls.first)
+        #expect(args.contains("--body=\(body)"))
+        // The dash-leading body must never appear as its own argument token.
+        #expect(!args.contains(body))
     }
 }
