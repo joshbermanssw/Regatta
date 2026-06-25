@@ -299,14 +299,10 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
     /// Rewrites a provider's PATH-relying ``WorkerAgentLaunch`` into one that runs
     /// the **resolved absolute executable** with a **complete** environment.
     ///
-    /// Provider launches target `/usr/bin/env` and prefix their arguments with the
-    /// binary name (`["claude", "-p", …]`) so `env` can find the CLI on `PATH`.
-    /// Once the executable is the resolved absolute path, that leading binary-name
-    /// token is dropped, so the worker runs e.g. `/Users/x/.local/bin/claude -p …`.
-    /// The resolver's environment is used as-is because it is already complete
-    /// (inherits the process environment + augments `PATH`) — ``ProcessPaneBridge``
-    /// *replaces* the child environment when it is non-empty, so a partial one would
-    /// strip `HOME` and break the agent's keychain/OAuth auth.
+    /// Forwards to ``WorkerAgentExecutableResolution/resolvedLaunch(base:providerID:resolve:)``
+    /// (which now lives in `RegattaCore` so it is exercised headlessly under
+    /// `swift test`); kept here as a thin alias so this file's call sites and the
+    /// `OrchestratorCIFixWorkerHandle` below read unchanged.
     ///
     /// - Throws: ``WorkerAgentExecutableResolutionError`` when resolution fails.
     static func resolvedLaunch(
@@ -314,40 +310,9 @@ struct OrchestratorWorkerSpawner: WorkerSpawning {
         providerID: AgentProviderID,
         resolve: WorkerAgentExecutableResolving
     ) throws -> WorkerAgentLaunch {
-        let resolution = try resolve(providerID)
-        let arguments = strippingBinaryNamePrefix(base.arguments, providerID: providerID)
-        return WorkerAgentLaunch(
-            executableURL: resolution.executableURL,
-            arguments: arguments,
-            environment: resolution.environment,
-            appendPrompt: base.appendPrompt
+        try WorkerAgentExecutableResolution.resolvedLaunch(
+            base: base, providerID: providerID, resolve: resolve
         )
-    }
-
-    /// Drops the leading binary-name token a provider prefixes for `/usr/bin/env`.
-    ///
-    /// Only strips the first argument when it matches the provider's executable name
-    /// (`claude`/`codex`/`gemini`), so a switch to the resolved absolute executable
-    /// does not pass the CLI its own name as the first positional argument. Leaves
-    /// args untouched if the prefix is already absent (idempotent).
-    static func strippingBinaryNamePrefix(
-        _ arguments: [String],
-        providerID: AgentProviderID
-    ) -> [String] {
-        guard let first = arguments.first,
-              first == binaryName(for: providerID) else {
-            return arguments
-        }
-        return Array(arguments.dropFirst())
-    }
-
-    /// The CLI binary name a provider's launch prefixes for `/usr/bin/env`.
-    private static func binaryName(for providerID: AgentProviderID) -> String {
-        switch providerID {
-        case .claudeCode: return "claude"
-        case .codex: return "codex"
-        case .gemini: return "gemini"
-        }
     }
 
     /// Spawns a worker for `spec`, registers it under `pullRequest` so a shepherd
@@ -563,63 +528,7 @@ struct OrchestratorCIFixWorkerHandle: CIFixWorkerHandle {
     }
 }
 
-/// Shared classification of whether an orchestrator worker's `.failed` exit
-/// describes a process that was **killed by a termination signal**
-/// (SIGTERM/SIGKILL/SIGINT…) rather than one that chose to exit non-zero.
-///
-/// ## Why this exists
-/// Both loop drivers — the generic ``OrchestratorLoopWorker`` (brain loop) and
-/// the ``OrchestratorCIFixWorkerHandle`` (ci-fix "until green" loop) — spawn one
-/// agent worker per iteration through the ``RegattaOrchestrator``. An explicit
-/// user cancel routes through ``RegattaOrchestrator/cancelWorker(_:)`` and marks
-/// the worker `.cancelled`, which both loops already treat as a final stop. But a
-/// worker whose process is killed by a signal *outside* that path (the runaway the
-/// user dogfooded: "a SIGKILLed worker, exit 9, triggered a respawn") surfaces as
-/// `.failed("agent exited with code 9")`. Treating that as an ordinary failed
-/// iteration let the loop advance and respawn. A signal kill is a cancellation,
-/// not a self-inflicted failure, so it must stop the loop.
-///
-/// The orchestrator formats a worker's terminal failure as
-/// `"agent exited with code <N>"`. The pane bridge reports a signal kill as the
-/// signal number (Foundation's `Process.terminationStatus` is the signal for an
-/// uncaught signal, e.g. 9/15) or, when it force-finishes a terminated pane, as
-/// `SIGTERM` (15). Shells and some toolchains report the same kill as `128 +
-/// signal` (137 = SIGKILL, 143 = SIGTERM) or a negative code. This helper treats
-/// all of those as a termination-signal kill.
-enum RegattaCancellationExit {
-
-    /// The signal numbers a cancellation actually sends that we treat as a kill:
-    /// SIGKILL (9) and SIGTERM (15). Deliberately limited to these two — lower
-    /// signal numbers like SIGHUP(1)/SIGINT(2)/SIGQUIT(3) collide with ordinary
-    /// non-zero exit codes (exit 1 and 2 are everyday failures, not kills), so
-    /// treating a bare 1/2/3 as a kill would misclassify a real failed iteration
-    /// as a cancel. 9/15 (and their 128+ shell forms 137/143) are unambiguous.
-    private static let killSignals: Set<Int> = [9, 15]
-
-    /// Whether `reason` (a worker `.failed` reason string) describes a process
-    /// killed by a termination signal, which a loop must treat as a cancel-stop.
-    static func isTerminationSignalFailure(_ reason: String) -> Bool {
-        guard let code = exitCode(from: reason) else { return false }
-        return isTerminationSignal(code)
-    }
-
-    /// Whether a raw process exit/termination code denotes a kill signal.
-    static func isTerminationSignal(_ code: Int) -> Bool {
-        // A negative code is the conventional "killed by signal -code".
-        if code < 0 { return isTerminationSignal(-code) }
-        // Bare signal number (Foundation reports the signal directly).
-        if killSignals.contains(code) { return true }
-        // Shell convention: 128 + signal.
-        if code > 128, killSignals.contains(code - 128) { return true }
-        return false
-    }
-
-    /// Extracts the trailing integer exit code from an
-    /// `"agent exited with code <N>"`-style reason, or `nil` if there is none
-    /// (e.g. the "unknown" placeholder for a missing code).
-    private static func exitCode(from reason: String) -> Int? {
-        let trailing = reason.reversed().prefix { $0.isNumber || $0 == "-" }
-        let token = String(trailing.reversed())
-        return Int(token)
-    }
-}
+// `RegattaCancellationExit` (the signal-kill classification both loop drivers use)
+// now lives in `RegattaCore` so it can be exercised headlessly under `swift test`.
+// This file's `OrchestratorCIFixWorkerHandle` and `OrchestratorLoopEngineProvider`
+// continue to reach it through `import RegattaCore`.

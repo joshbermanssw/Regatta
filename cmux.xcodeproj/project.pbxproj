@@ -562,7 +562,6 @@
 		BA2941040000000000000001 /* OrchestratorLoopEngineProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2941010000000000000001 /* OrchestratorLoopEngineProvider.swift */; };
 		BA2942040000000000000001 /* OrchestratorLoopTerminalJumper.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2942010000000000000001 /* OrchestratorLoopTerminalJumper.swift */; };
 		BA2940040000000000000001 /* OrchestratorWorkerSpawner.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2940010000000000000001 /* OrchestratorWorkerSpawner.swift */; };
-		BA2944020000000000000002 /* OrchestratorWorkerSpawnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2944020000000000000001 /* OrchestratorWorkerSpawnerTests.swift */; };
 		D0B1001CA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1001DA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift */; };
 		A5001400 /* Panel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001410 /* Panel.swift */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
@@ -1610,7 +1609,6 @@
 		BA2941010000000000000001 /* OrchestratorLoopEngineProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrchestratorLoopEngineProvider.swift; sourceTree = "<group>"; };
 		BA2942010000000000000001 /* OrchestratorLoopTerminalJumper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrchestratorLoopTerminalJumper.swift; sourceTree = "<group>"; };
 		BA2940010000000000000001 /* OrchestratorWorkerSpawner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrchestratorWorkerSpawner.swift; sourceTree = "<group>"; };
-		BA2944020000000000000001 /* OrchestratorWorkerSpawnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Regatta/OrchestratorWorkerSpawnerTests.swift; sourceTree = "<group>"; };
 		D0B1001DA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDropRoutingSupport.swift; sourceTree = "<group>"; };
 		A5001410 /* Panel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/Panel.swift; sourceTree = "<group>"; };
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
@@ -3134,7 +3132,6 @@
 				BA2931010000000000000001 /* RegattaSummonViewModelShepherdTests.swift */,
 				BA2930020000000000000001 /* ShepherdCardModelTests.swift */,
 				BA2971010000000000000001 /* WorkerStatusPresentationTests.swift */,
-				BA2944020000000000000001 /* OrchestratorWorkerSpawnerTests.swift */,
 				BA2950010000000000000001 /* RegattaToastCenterTests.swift */,
 				BA2950030000000000000001 /* RegattaSpawnFormViewModelTests.swift */,
 				BA2950020000000000000001 /* RegattaHandoffResolverTests.swift */,
@@ -4532,7 +4529,6 @@
 				9637C6D3170F4BE1A7EF6243 /* OmnibarSubmitDecisionTests.swift in Sources */,
 				0A0F00550000000000000001 /* OmpSupportTests.swift in Sources */,
 				A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */,
-				BA2944020000000000000002 /* OrchestratorWorkerSpawnerTests.swift in Sources */,
 				C44550000000000000000001 /* PanelOwnedNativeViewSessionTests.swift in Sources */,
 				6313FACE0000000000000000 /* PaneMemoryGuardrailTests.swift in Sources */,
 				D1F0A00300000000000000C1 /* PhonePushPresenceGateTests.swift in Sources */,

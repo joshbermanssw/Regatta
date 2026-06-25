@@ -1,0 +1,40 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "regatta.workerExecutable.notFound" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ CLI not found. %2$@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ CLIが見つかりません。%2$@"
+          }
+        }
+      }
+    },
+    "regatta.workerExecutable.unsupported" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ cannot be launched as a Regatta worker: its CLI could not be located."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ はRegattaワーカーとして起動できません。CLIが見つかりませんでした。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
