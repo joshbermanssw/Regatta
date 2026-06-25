@@ -85,6 +85,55 @@ struct CIFixReactorTests {
         })
     }
 
+    @Test("the push targets the PR's resolved head branch, not the repo name")
+    func pushTargetsResolvedHeadBranch() async {
+        let spawner = StubWorkerSpawner(producesFix: true)
+        let gate = StubOutwardActionGate(verdict: .allowed)
+        let poller = SequencedPullRequestPoller([
+            .checks(failing()),
+            .checks(green()),
+        ])
+        // The composition root resolves the PR's real head branch (captured at
+        // handoff); the push must target it, not the repo name.
+        let reactor = CIFixReactor(
+            spawner: spawner,
+            gate: gate,
+            poller: poller,
+            headBranchResolver: { _ in "feature/widen-timeout" }
+        )
+
+        let outcome = await reactor.runFixLoop(for: pr)
+
+        #expect(outcome == .greenSuccess)
+        #expect(gate.requested.allSatisfy {
+            $0 == .pushFix(pullRequest: pr, branch: "feature/widen-timeout")
+        })
+        // Critically, it must NOT push to a branch named after the repo.
+        #expect(!gate.requested.contains(.pushFix(pullRequest: pr, branch: pr.repo)))
+    }
+
+    @Test("an unresolved head branch declines the push and flags needs attention")
+    func unresolvedHeadBranchDeclinesPush() async {
+        let spawner = StubWorkerSpawner(producesFix: true)
+        let gate = StubOutwardActionGate(verdict: .allowed)
+        let poller = SequencedPullRequestPoller([.checks(failing())])
+        // No recorded head branch for this PR (e.g. not handed off, store miss):
+        // the resolver returns nil. The reactor must decline to push to a wrong
+        // branch and report needs-attention rather than pushing `HEAD:<repo>`.
+        let reactor = CIFixReactor(
+            spawner: spawner,
+            gate: gate,
+            poller: poller,
+            headBranchResolver: { _ in nil }
+        )
+
+        let outcome = await reactor.runFixLoop(for: pr)
+
+        #expect(outcome.needsAttention == true)
+        // No push was authorized — the wrong-branch push must never be attempted.
+        #expect(gate.requestCount == 0)
+    }
+
     @Test("hitting the cap while still red flags the PR as needs attention")
     func capFlagsNeedsAttention() async {
         let spawner = StubWorkerSpawner(producesFix: true)
