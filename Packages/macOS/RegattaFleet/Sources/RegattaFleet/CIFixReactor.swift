@@ -246,7 +246,9 @@ public actor CIFixReactor {
                     for: pullRequest
                 )
                 if verdict == .denied {
-                    return .needsAttention(reason: "Push blocked by autonomy gate")
+                    return .needsAttention(
+                        reason: "Couldn't make CI green — fix is staged but the push was blocked by the autonomy gate"
+                    )
                 }
             }
 
@@ -258,8 +260,15 @@ public actor CIFixReactor {
                 if await condition.isGreen {
                     return .greenSuccess
                 }
+                // Cap reached while still red. Name the still-failing checks and the
+                // number of attempts so the human knows it gave up (vs is still
+                // working).
+                let checks = await condition.lastSummary
                 return .needsAttention(
-                    reason: "CI still failing after \(maxIterations) fix attempts"
+                    reason: Self.capReason(
+                        attempts: maxIterations,
+                        failing: checks?.failedCheckNames ?? []
+                    )
                 )
             }
 
@@ -268,13 +277,41 @@ public actor CIFixReactor {
             // iteration up to the cap (the "runs, does nothing, exits Done" loop the
             // user saw). Stop now and flag the PR for human attention instead.
             if !producedFix {
+                let checks = await condition.lastSummary
                 return .needsAttention(
-                    reason: "The ci-fix agent could not produce a fix"
+                    reason: Self.noProgressReason(failing: checks?.failedCheckNames ?? [])
                 )
             }
 
             iteration += 1
         }
+    }
+
+    // MARK: - Reason wording
+
+    /// Builds the "gave up at the cap" needs-attention reason, naming the
+    /// still-failing checks and the number of attempts. Distinguishes the cap stop
+    /// from the no-progress stop so the user can tell the worker gave up.
+    static func capReason(attempts: Int, failing: [String]) -> String {
+        let suffix = checksSuffix(failing)
+        return "Couldn't make CI green — gave up after \(attempts) attempts\(suffix)"
+    }
+
+    /// Builds the "no fix found" needs-attention reason, naming the still-failing
+    /// checks. Distinguishes the no-progress stop ("nothing the agent could fix")
+    /// from the cap stop.
+    static func noProgressReason(failing: [String]) -> String {
+        if failing.isEmpty {
+            return "Couldn't make CI green — no code-level fix found"
+        }
+        return "Couldn't make CI green — no code-level fix found for: \(failing.joined(separator: ", "))"
+    }
+
+    /// The trailing "still failing: a, b" clause shared by the reasons, or an
+    /// empty string when no failing check names are known.
+    private static func checksSuffix(_ failing: [String]) -> String {
+        guard !failing.isEmpty else { return "" }
+        return "; still failing: \(failing.joined(separator: ", "))"
     }
 
     // MARK: - Private

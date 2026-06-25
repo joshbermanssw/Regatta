@@ -139,6 +139,26 @@ struct PRCheckSummaryTests {
         let summary = PRCheckSummary(checks: [])
         #expect(summary.allSucceeded == false)
     }
+
+    @Test("failedCheckNames lists only the completed-failure checks, in order")
+    func failedCheckNamesListsFailures() {
+        let summary = PRCheckSummary(checks: [
+            PRCheck(name: "lint", status: "COMPLETED", conclusion: "SUCCESS", detailsURL: nil),
+            PRCheck(name: "build", status: "COMPLETED", conclusion: "FAILURE", detailsURL: nil),
+            PRCheck(name: "deploy", status: "COMPLETED", conclusion: "ACTION_REQUIRED", detailsURL: nil),
+            PRCheck(name: "slow", status: "COMPLETED", conclusion: "TIMED_OUT", detailsURL: nil),
+            PRCheck(name: "pending", status: "IN_PROGRESS", conclusion: nil, detailsURL: nil),
+        ])
+        #expect(summary.failedCheckNames == ["build", "deploy", "slow"])
+    }
+
+    @Test("failedCheckNames is empty when nothing failed")
+    func failedCheckNamesEmptyWhenGreen() {
+        let summary = PRCheckSummary(checks: [
+            PRCheck(name: "build", status: "COMPLETED", conclusion: "SUCCESS", detailsURL: nil),
+        ])
+        #expect(summary.failedCheckNames.isEmpty)
+    }
 }
 
 // MARK: - Review Threads

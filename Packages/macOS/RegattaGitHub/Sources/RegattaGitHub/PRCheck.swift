@@ -52,4 +52,18 @@ public struct PRCheckSummary: Sendable, Equatable, Codable {
     public var anyPending: Bool {
         checks.contains { $0.status != "COMPLETED" }
     }
+
+    /// The display names of every check that completed with a failure conclusion,
+    /// in input order. Used to name the still-failing checks in a human-readable
+    /// "needs attention" reason when the ci-fix loop gives up.
+    public var failedCheckNames: [String] {
+        checks
+            .filter {
+                $0.status == "COMPLETED"
+                    && ($0.conclusion == "FAILURE"
+                        || $0.conclusion == "ACTION_REQUIRED"
+                        || $0.conclusion == "TIMED_OUT")
+            }
+            .map { $0.name }
+    }
 }
