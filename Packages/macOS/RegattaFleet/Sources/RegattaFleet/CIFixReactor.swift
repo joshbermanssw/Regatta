@@ -39,6 +39,22 @@ public actor CIFixReactor {
     private let maxIterations: Int
     private let makeCondition: @Sendable (PullRequestRef) -> CIFixLoopCondition
 
+    /// Resolves the PR's **head branch** — the branch the gate-routed push targets
+    /// (`git push origin HEAD:<branch>`). The reactor holds only a
+    /// ``PullRequestRef`` (owner/repo/number), which does **not** carry the head
+    /// branch, so the composition root injects this resolver (backed by the
+    /// per-PR head-branch map recorded at handoff). When it returns `nil` the
+    /// reactor cannot push to the correct branch and reports needs-attention rather
+    /// than pushing the fix to a wrong branch.
+    ///
+    /// ## Why this exists (bug the integration test exposed)
+    /// The fix loop previously built its worker spec with `branch: pullRequest.repo`
+    /// — the **repository name**, not the PR head branch — so the gate-approved push
+    /// went to a junk branch named after the repo (e.g. `HEAD:regatta`). The PR's
+    /// real branch never received the fix, so its CI never went green and the loop
+    /// gave up. Resolving the real head branch makes the push land on the PR.
+    private let headBranchResolver: @Sendable (PullRequestRef) async -> String?
+
     /// PRs that have an in-flight fix loop, so a second red snapshot does not
     /// spawn a duplicate loop while one is running.
     private var inFlight: Set<String> = []
@@ -75,11 +91,13 @@ public actor CIFixReactor {
         spawner: any WorkerSpawning,
         gate: any OutwardActionGate,
         maxIterations: Int = 5,
+        headBranchResolver: @escaping @Sendable (PullRequestRef) async -> String? = { _ in nil },
         makeCondition: @escaping @Sendable (PullRequestRef) -> CIFixLoopCondition
     ) {
         self.spawner = spawner
         self.gate = gate
         self.maxIterations = maxIterations
+        self.headBranchResolver = headBranchResolver
         self.makeCondition = makeCondition
     }
 
@@ -94,11 +112,13 @@ public actor CIFixReactor {
         spawner: any WorkerSpawning,
         gate: any OutwardActionGate,
         poller: any PullRequestPolling,
-        maxIterations: Int = 5
+        maxIterations: Int = 5,
+        headBranchResolver: @escaping @Sendable (PullRequestRef) async -> String? = { _ in nil }
     ) {
         self.spawner = spawner
         self.gate = gate
         self.maxIterations = maxIterations
+        self.headBranchResolver = headBranchResolver
         self.makeCondition = { ref in
             CIFixLoopCondition(pullRequest: ref, poller: poller, maxIterations: maxIterations)
         }
@@ -214,7 +234,12 @@ public actor CIFixReactor {
     /// those belong to ``ingest(_:)``.
     public func runFixLoop(for pullRequest: PullRequestRef) async -> CIFixOutcome {
         let id = pullRequest.id
-        let spec = CIFixWorkerSpec(pullRequest: pullRequest, branch: pullRequest.repo)
+        // Resolve the PR's real head branch so the gate-routed push targets the PR
+        // (`git push origin HEAD:<headBranch>`). When unknown, fall back to the
+        // PR head branch resolver returning `nil`; the loop then declines to push
+        // to a wrong branch and reports needs-attention if the worker produced a fix.
+        let headBranch = await headBranchResolver(pullRequest)
+        let spec = CIFixWorkerSpec(pullRequest: pullRequest, branch: headBranch ?? pullRequest.repo)
         let worker = await spawner.spawn(spec)
         let condition = makeCondition(pullRequest)
 

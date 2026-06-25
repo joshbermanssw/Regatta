@@ -201,7 +201,14 @@ final class RegattaFleetViewModel {
                 let isDuplicate = self.shepherds.contains { $0.pullRequest == ref }
                 // Bug 1: record the active workspace's on-disk checkout so the
                 // spawner runs this PR's workers against the real repo, not `/`.
-                await self.fleet.handoff(ref, repositoryDirectory: Self.repositoryURL(from: context))
+                // Also record the workspace's current git branch as the PR head
+                // branch so the gate-routed ci-fix push targets the PR's branch,
+                // not a junk branch named after the repo (wrong-push-branch bug).
+                await self.fleet.handoff(
+                    ref,
+                    repositoryDirectory: Self.repositoryURL(from: context),
+                    headBranch: Self.headBranch(from: context)
+                )
                 if isDuplicate {
                     self.toasts.info(
                         String.localizedStringWithFormat(
@@ -259,6 +266,17 @@ final class RegattaFleetViewModel {
             !directory.isEmpty
         else { return nil }
         return URL(fileURLWithPath: directory)
+    }
+
+    /// The workspace's current git branch (the PR head branch) for a handoff
+    /// context, or `nil` when missing/empty. Recorded with the handoff so the
+    /// ci-fix push targets the PR's real branch (wrong-push-branch bug).
+    private static func headBranch(from context: AttachedTabContext?) -> String? {
+        guard let branch = context?.gitBranch?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !branch.isEmpty
+        else { return nil }
+        return branch
     }
 
     /// The detail line for the no-PR error, naming the branch when known.

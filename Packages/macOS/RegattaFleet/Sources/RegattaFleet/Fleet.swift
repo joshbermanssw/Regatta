@@ -46,6 +46,16 @@ public actor Fleet {
     /// hopping onto the Fleet actor. Every store operation still awaits.
     public nonisolated let repositoryDirectories: PRRepositoryDirectoryStore
 
+    /// The per-PR map of head branches, captured at handoff, that the CI-fix
+    /// reactor's `headBranchResolver` reads back so the gate-routed push targets the
+    /// PR's real branch (`git push origin HEAD:<headBranch>`) instead of a junk
+    /// branch named after the repo (the wrong-push-branch bug).
+    ///
+    /// `nonisolated` so the composition root can read this immutable, `Sendable`
+    /// actor reference synchronously (to build the reactor's resolver) without
+    /// hopping onto the Fleet actor. Every store operation still awaits.
+    public nonisolated let headBranches: PRHeadBranchStore
+
     private var watchers: [String: ShepherdWatcher] = [:]
     private var latest: [String: ShepherdState] = [:]
     private var fanoutTasks: [String: Task<Void, Never>] = [:]
@@ -89,11 +99,13 @@ public actor Fleet {
         autoStart: Bool = true,
         autonomyGate: AutonomyGate = AutonomyGate(),
         repositoryDirectories: PRRepositoryDirectoryStore = PRRepositoryDirectoryStore(),
+        headBranches: PRHeadBranchStore = PRHeadBranchStore(),
         makeWatcher: @escaping @Sendable (PullRequestRef) -> ShepherdWatcher
     ) {
         self.autoStart = autoStart
         self.autonomyGate = autonomyGate
         self.repositoryDirectories = repositoryDirectories
+        self.headBranches = headBranches
         self.makeWatcher = makeWatcher
     }
 
@@ -106,11 +118,13 @@ public actor Fleet {
         poller: any PullRequestPolling = GitHubPoller(),
         pollInterval: Duration = .seconds(30),
         autonomyGate: AutonomyGate = AutonomyGate(),
-        repositoryDirectories: PRRepositoryDirectoryStore = PRRepositoryDirectoryStore()
+        repositoryDirectories: PRRepositoryDirectoryStore = PRRepositoryDirectoryStore(),
+        headBranches: PRHeadBranchStore = PRHeadBranchStore()
     ) {
         self.autoStart = true
         self.autonomyGate = autonomyGate
         self.repositoryDirectories = repositoryDirectories
+        self.headBranches = headBranches
         self.makeWatcher = { ref in
             ShepherdWatcher(pullRequest: ref, poller: poller, pollInterval: pollInterval)
         }
@@ -136,10 +150,16 @@ public actor Fleet {
     @discardableResult
     public func handoff(
         _ pullRequest: PullRequestRef,
-        repositoryDirectory: URL?
+        repositoryDirectory: URL?,
+        headBranch: String? = nil
     ) async -> ShepherdWatcher {
         if let repositoryDirectory {
             await repositoryDirectories.record(repositoryDirectory, for: pullRequest)
+        }
+        // Record the PR's head branch so the ci-fix push targets the PR's real
+        // branch instead of a junk branch named after the repo.
+        if let headBranch, !headBranch.isEmpty {
+            await headBranches.record(headBranch, for: pullRequest)
         }
         return handoff(pullRequest)
     }
