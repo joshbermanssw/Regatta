@@ -446,6 +446,12 @@ private struct WorkerCell: View {
     let onCancel: () -> Void
     let onRemove: () -> Void
 
+    /// The shared, legible status presentation — the same projection the rail row
+    /// uses, so the two surfaces never drift (shared-behavior policy).
+    private var presentation: WorkerStatusPresentation {
+        WorkerStatusPresentation(worker.status)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -462,7 +468,7 @@ private struct WorkerCell: View {
             String.localizedStringWithFormat(
                 String(localized: "regatta.summon.cell.a11y", defaultValue: "Worker terminal %@, %@"),
                 worker.name,
-                statusLabel
+                presentation.accessibilitySummary
             )
         )
     }
@@ -470,7 +476,7 @@ private struct WorkerCell: View {
     private var header: some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(statusColor)
+                .fill(presentation.dotColor)
                 .frame(width: 8, height: 8)
                 .accessibilityHidden(true)
             Text(worker.name)
@@ -478,9 +484,9 @@ private struct WorkerCell: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Text(statusLabel)
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+            Text(presentation.label)
+                .font(.system(size: 10, weight: presentation.needsAttention ? .semibold : .regular))
+                .foregroundStyle(presentation.needsAttention ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                 .lineLimit(1)
             Spacer(minLength: 4)
             // Always offer a way to get rid of a worker: cancel while it's still
@@ -511,62 +517,46 @@ private struct WorkerCell: View {
     }
 
     /// The seam where the worker's live terminal surface mounts once #14/#16 expose
-    /// the worker's pane handle. Until then it shows the worker's prompt and a note.
+    /// the worker's pane handle. Until then it leads with the worker's *goal* (the
+    /// prominent content: "what's happening" clarity), surfaces any error reason,
+    /// and demotes the live-terminal note to a muted footnote so it never reads as
+    /// the main content.
     private var terminalSeam: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             if !worker.prompt.isEmpty {
-                Text(worker.prompt)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(String(localized: "regatta.summon.cell.goal", defaultValue: "Goal").uppercased())
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .tracking(0.5)
+                    Text(worker.prompt)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.primary)
+                        .lineLimit(5)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+            }
+            if let detail = presentation.detail {
+                Label(detail, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.orange)
                     .lineLimit(3)
-                    .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             Spacer(minLength: 0)
-            Text(String(localized: "regatta.summon.cell.seam", defaultValue: "Live terminal arrives with the Pane Bridge."))
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Label(
+                String(localized: "regatta.summon.cell.seam", defaultValue: "Live terminal arrives with the Pane Bridge."),
+                systemImage: "terminal"
+            )
+            .labelStyle(.titleAndIcon)
+            .font(.system(size: 9))
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private var statusColor: Color {
-        switch worker.status {
-        case .queued:    return .secondary
-        case .running:   return .blue
-        case .done:      return .green
-        case .failed:    return .red
-        case .blocked:   return .yellow
-        case .cancelled: return .orange
-        case .interrupted: return .yellow
-        }
-    }
-
-    private var statusLabel: String {
-        switch worker.status {
-        case .queued:
-            return String(localized: "regatta.fleet.status.queued", defaultValue: "Queued")
-        case .running:
-            return String(localized: "regatta.fleet.status.running", defaultValue: "Running")
-        case .done:
-            return String(localized: "regatta.fleet.status.done", defaultValue: "Done")
-        case .failed(let reason):
-            return String.localizedStringWithFormat(
-                String(localized: "regatta.fleet.status.failed", defaultValue: "Failed: %@"),
-                reason
-            )
-        case .blocked(let reason):
-            return String.localizedStringWithFormat(
-                String(localized: "regatta.fleet.status.blocked", defaultValue: "Blocked: %@"),
-                reason
-            )
-        case .cancelled:
-            return String(localized: "regatta.fleet.status.cancelled", defaultValue: "Cancelled")
-        case .interrupted:
-            return String(localized: "regatta.fleet.status.interrupted", defaultValue: "Interrupted")
-        }
     }
 }
 

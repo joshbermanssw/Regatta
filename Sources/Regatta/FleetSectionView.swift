@@ -141,13 +141,14 @@ struct FleetSectionView: View {
     }
 
     private var workerEmptyView: some View {
-        Text(String(localized: "regatta.fleet.empty.body", defaultValue: "Workers spawned by the brain will appear here."))
-            .font(.system(size: 11))
-            .foregroundStyle(.tertiary)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+        FleetEmptyState(
+            icon: "rectangle.grid.2x2",
+            title: String(localized: "regatta.fleet.workers.empty.title", defaultValue: "No workers yet"),
+            message: String(
+                localized: "regatta.fleet.workers.empty.message",
+                defaultValue: "Spawn one from the Fleet grid, or ask the Brain to start work."
+            )
+        )
     }
 
     // MARK: - Summon control
@@ -244,12 +245,14 @@ struct FleetSectionView: View {
     }
 
     private var shepherdEmptyView: some View {
-        Text(String(localized: "fleet.empty", defaultValue: "No shepherds yet"))
-            .font(.system(size: 11))
-            .foregroundStyle(.tertiary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+        FleetEmptyState(
+            icon: "sailboat",
+            title: String(localized: "fleet.empty", defaultValue: "No shepherds yet"),
+            message: String(
+                localized: "regatta.fleet.shepherds.empty.message",
+                defaultValue: "Hand a PR to Regatta and it watches CI and reviews here."
+            )
+        )
     }
 
     // MARK: - Actions
@@ -334,21 +337,44 @@ private struct WorkerRow: View {
     /// Toggles the live loop view bound to this worker (Seam B / issue #22).
     let onToggleLoop: () -> Void
 
+    /// The shared, legible presentation of the worker's status (label, reason
+    /// detail, dot colour, needs-attention) — the same projection the grid cell
+    /// uses, so the two surfaces never drift.
+    private var presentation: WorkerStatusPresentation {
+        WorkerStatusPresentation(worker.status)
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             statusDot
-            VStack(alignment: .leading, spacing: 1) {
+                .padding(.top, 3)
+            VStack(alignment: .leading, spacing: 2) {
                 Text(worker.name)
-                    .font(.system(size: 12))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 HStack(spacing: 4) {
                     providerBadge
-                    Text(statusLabel)
+                    Text(presentation.label)
+                        .font(.system(size: 10, weight: presentation.needsAttention ? .semibold : .regular))
+                        .foregroundStyle(presentation.needsAttention ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                        .lineLimit(1)
+                }
+                if let detail = presentation.detail {
+                    Text(detail)
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if !worker.prompt.isEmpty {
+                    // Show what the worker is actually doing ("what's happening"
+                    // clarity) when there is no error reason to show instead.
+                    Text(worker.prompt)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
             Spacer(minLength: 4)
@@ -376,7 +402,7 @@ private struct WorkerRow: View {
                 String(localized: "regatta.fleet.worker.a11y", defaultValue: "Worker %@, %@, %@"),
                 worker.name,
                 worker.providerID.displayName,
-                statusLabel
+                presentation.accessibilitySummary
             )
         )
     }
@@ -403,46 +429,9 @@ private struct WorkerRow: View {
 
     private var statusDot: some View {
         Circle()
-            .fill(statusColor)
+            .fill(presentation.dotColor)
             .frame(width: 8, height: 8)
             .accessibilityHidden(true)
-    }
-
-    private var statusColor: Color {
-        switch worker.status {
-        case .queued:    return .secondary
-        case .running:   return .blue
-        case .done:      return .green
-        case .failed:    return .red
-        case .blocked:   return .yellow
-        case .cancelled: return .orange
-        case .interrupted: return .yellow
-        }
-    }
-
-    private var statusLabel: String {
-        switch worker.status {
-        case .queued:
-            return String(localized: "regatta.fleet.status.queued", defaultValue: "Queued")
-        case .running:
-            return String(localized: "regatta.fleet.status.running", defaultValue: "Running")
-        case .done:
-            return String(localized: "regatta.fleet.status.done", defaultValue: "Done")
-        case .failed(let reason):
-            return String.localizedStringWithFormat(
-                String(localized: "regatta.fleet.status.failed", defaultValue: "Failed: %@"),
-                reason
-            )
-        case .blocked(let reason):
-            return String.localizedStringWithFormat(
-                String(localized: "regatta.fleet.status.blocked", defaultValue: "Blocked: %@"),
-                reason
-            )
-        case .cancelled:
-            return String(localized: "regatta.fleet.status.cancelled", defaultValue: "Cancelled")
-        case .interrupted:
-            return String(localized: "regatta.fleet.status.interrupted", defaultValue: "Interrupted")
-        }
     }
 
     // MARK: Cancel button
@@ -474,4 +463,40 @@ struct ShepherdCardActions {
     let onSetMode: (AutonomyMode) -> Void
     let onApprove: (UUID) -> Void
     let onReject: (UUID) -> Void
+}
+
+// MARK: - FleetEmptyState
+
+/// A friendly, instructive empty-state block shared by the worker and shepherd
+/// lists: a muted icon, a short title, and a one-line "how to get started" hint.
+/// Pure value inputs only (no store reference) so it is safe to render from a
+/// list body under the snapshot-boundary rule.
+private struct FleetEmptyState: View {
+    let icon: String
+    let title: String
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 13))
+                .foregroundStyle(.tertiary)
+                .frame(width: 16)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
+    }
 }
