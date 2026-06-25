@@ -155,10 +155,17 @@ final class RegattaFleetManager {
 
         // CI-fix loop (#30): spawn a real worker on red checks, push through the
         // Fleet's real autonomy gate, and re-poll checks until green or capped.
+        // Resolve each PR's real head branch (captured at handoff) so the
+        // gate-routed ci-fix push targets the PR's branch — not a junk branch named
+        // after the repo (the wrong-push-branch bug the e2e integration test
+        // exposed). A PR with no recorded branch resolves to `nil` and the reactor
+        // declines to push to a wrong branch.
+        let headBranches = fleet.headBranches
         let ciFixReactor = CIFixReactor(
             spawner: spawner,
             gate: fleet.autonomyGate,
-            poller: poller
+            poller: poller,
+            headBranchResolver: { ref in await headBranches.branch(for: ref) }
         )
         self.ciFixReactor = ciFixReactor
         self.ciFixBridge = FleetCIFixBridge(fleet: fleet, reactor: ciFixReactor)
