@@ -209,9 +209,10 @@ struct RegattaPipelineEndToEndTests {
         let writer = RecordingPRWriter()
         // This scenario verifies the reactor's skip rules + that a real reviewer
         // comment drives the real live spawner; the autonomy gate is not under test
-        // here (scenarios 1/2 cover it), so an allow-all gate keeps the focus on
-        // skip logic. (Conversation/review code-change pushes carry no branch, so
-        // they are not routed through the branch-requiring GitPushActionExecutor.)
+        // here (scenarios 1/2 + Scenario 6 cover it), so an allow-all gate keeps the
+        // focus on skip logic. The reactor still resolves the PR head branch (the C1
+        // fix: the addressing push carries the head branch, mirroring ci-fix), so the
+        // worker pushes through the gate rather than declining.
         let gate = AllowAllOutwardActionGate()
 
         let reactor = ConversationCommentReactor(
@@ -219,7 +220,8 @@ struct RegattaPipelineEndToEndTests {
             writer: writer,
             gate: gate,
             log: NoopConversationCommentLog(),
-            selfLogin: { "shepherd-bot" }
+            selfLogin: { "shepherd-bot" },
+            headBranchResolver: { _ in env.fixture.branch }
         )
 
         // A poll snapshot mixing skip-worthy comments with one genuine reviewer
@@ -254,7 +256,8 @@ struct RegattaPipelineEndToEndTests {
         )
         let reactor2 = ConversationCommentReactor(
             spawner: spawner, writer: writer, gate: gate,
-            log: NoopConversationCommentLog(), selfLogin: { "shepherd-bot" }
+            log: NoopConversationCommentLog(), selfLogin: { "shepherd-bot" },
+            headBranchResolver: { _ in env.fixture.branch }
         )
         await reactor2.react(to: answeredState)
         // Nothing newly handled — the reviewer comment is already answered.
@@ -349,10 +352,332 @@ struct RegattaPipelineEndToEndTests {
         #expect(spawner.spawnCount == 0)
     }
 
+    // MARK: - Scenario 6: review-thread addressing push lands on the PR branch (C1)
+
+    /// A reviewer comment on a thread → the real live spawner runs the fake agent
+    /// which **commits a fix** → the real diff probe detects it → the push is routed
+    /// through the **real ``AutonomyGate`` in auto mode** carrying the PR head branch
+    /// → a **real `git push`** advances the fixture branch → the thread is replied to,
+    /// resolved, and marked **handled** (no respawn on the next poll).
+    ///
+    /// This is the regression guard for C1 on the review-thread path: before the fix
+    /// the push carried no branch and the production executor threw `missingBranch`,
+    /// so the thread was never handled and re-spawned forever.
+    @Test("review-thread addressing: auto push advances the branch, thread handled (C1)")
+    func reviewThreadAddressingAutoPushLandsOnBranch() async throws {
+        let env = try PipelineEnv(agentCommits: true, marker: "thread-auto")
+        defer { env.cleanup() }
+        let pr = Self.ref(7)
+
+        let originTipBefore = try env.fixture.tipSHA(env.fixture.origin)
+
+        let worktreeStore = CIFixWorktreeStore()
+        let gate = env.makeAutonomyGate(worktreeStore: worktreeStore)
+        await gate.setMode(.auto, for: pr) // auto ⇒ push executes immediately
+
+        let spawner = env.makeSpawner(worktreeStore: worktreeStore)
+        let writer = RecordingPRWriter()
+        let reactor = ReviewThreadReactor(
+            spawner: spawner,
+            writer: writer,
+            gate: gate,
+            log: NoopReviewThreadLog(),
+            selfLogin: { "shepherd-bot" },
+            headBranchResolver: { _ in env.fixture.branch }
+        )
+
+        let state = ShepherdState(
+            pullRequest: pr, phase: .watching,
+            reviewThreads: [Self.thread("T1", author: "alice")]
+        )
+        await reactor.react(to: state)
+
+        // The real, gate-approved push advanced the fixture branch on the remote.
+        #expect(
+            try env.fixture.tipSHA(env.fixture.origin) != originTipBefore,
+            "the gate-approved addressing push should advance origin/\(env.fixture.branch)"
+        )
+        // The thread was fully handled (replied + resolved) → recorded so it never
+        // re-spawns on the next identical poll.
+        #expect(await reactor.handledThreadIDs == ["T1"])
+        #expect(writer.threadReplies.map(\.threadID) == ["T1"])
+        #expect(writer.resolvedThreads == ["T1"])
+
+        // Next poll with the same thread spawns nothing (handled = no respawn).
+        await reactor.react(to: state)
+        #expect(await reactor.handledThreadIDs == ["T1"])
+        #expect(writer.threadReplies.count == 1, "a handled thread is not re-addressed")
+    }
+
+    // MARK: - Scenario 7: conversation-comment addressing — staged holds the push (C1)
+
+    /// A reviewer conversation comment → the agent commits a fix → the loop routes
+    /// the push through the **staged** gate, which **holds it as a pending action**
+    /// carrying the PR head branch (not pushed). The comment is therefore **not**
+    /// marked handled (it retries once approved), and approving the pending action
+    /// runs the **real push**.
+    @Test("conversation addressing: staged gate holds a branch-carrying pending push (C1)")
+    func conversationAddressingStagedHoldsPendingPush() async throws {
+        let env = try PipelineEnv(agentCommits: true, marker: "conv-staged")
+        defer { env.cleanup() }
+        let pr = Self.ref(8)
+
+        let originTipBefore = try env.fixture.tipSHA(env.fixture.origin)
+
+        let worktreeStore = CIFixWorktreeStore()
+        let gate = env.makeAutonomyGate(worktreeStore: worktreeStore)
+        await gate.setMode(.staged, for: pr) // staged ⇒ push held for approval
+
+        let spawner = env.makeSpawner(worktreeStore: worktreeStore)
+        let writer = RecordingPRWriter()
+        let reactor = ConversationCommentReactor(
+            spawner: spawner,
+            writer: writer,
+            gate: gate,
+            log: NoopConversationCommentLog(),
+            selfLogin: { "shepherd-bot" },
+            headBranchResolver: { _ in env.fixture.branch }
+        )
+
+        let state = ShepherdState(
+            pullRequest: pr, phase: .watching,
+            conversationComments: [comment(id: "C1", author: "alice", body: "Please rename foo().")]
+        )
+        await reactor.react(to: state)
+
+        // Staged ⇒ the push is held, origin unchanged, and the comment is NOT handled.
+        #expect(try env.fixture.tipSHA(env.fixture.origin) == originTipBefore)
+        #expect(await reactor.handledCommentIDs.isEmpty, "a held push leaves the comment for retry")
+
+        // A pending push action is queued for this PR, carrying the head branch.
+        let pending = await gate.currentPending(for: pr)
+        let pushAction = try #require(pending.first { $0.kind == .push })
+        #expect(pushAction.payload?["branch"] == env.fixture.branch)
+        #expect(pushAction.payload?["commentID"] == "C1")
+
+        // Approving the pending action runs the real push → branch advances.
+        let resolved = await gate.approve(pushAction.id)
+        #expect(resolved?.status == .completed)
+        #expect(
+            try env.fixture.tipSHA(env.fixture.origin) != originTipBefore,
+            "approving the staged addressing push should advance origin/\(env.fixture.branch)"
+        )
+    }
+
+    // MARK: - Scenario 8: review-summary addressing push lands on the PR branch (C1)
+
+    /// A submitted CHANGES_REQUESTED review → the agent commits a fix → the auto gate
+    /// routes the branch-carrying push → a real `git push` advances the branch → the
+    /// review is marked handled (no respawn).
+    @Test("review-summary addressing: auto push advances the branch, review handled (C1)")
+    func reviewSummaryAddressingAutoPushLandsOnBranch() async throws {
+        let env = try PipelineEnv(agentCommits: true, marker: "review-auto")
+        defer { env.cleanup() }
+        let pr = Self.ref(9)
+
+        let originTipBefore = try env.fixture.tipSHA(env.fixture.origin)
+
+        let worktreeStore = CIFixWorktreeStore()
+        let gate = env.makeAutonomyGate(worktreeStore: worktreeStore)
+        await gate.setMode(.auto, for: pr)
+
+        let spawner = env.makeSpawner(worktreeStore: worktreeStore)
+        let writer = RecordingPRWriter()
+        let reactor = ReviewSummaryReactor(
+            spawner: spawner,
+            writer: writer,
+            gate: gate,
+            log: NoopReviewSummaryLog(),
+            selfLogin: { "shepherd-bot" },
+            headBranchResolver: { _ in env.fixture.branch }
+        )
+
+        let state = ShepherdState(
+            pullRequest: pr, phase: .watching,
+            reviews: [makeReview("R1", author: "alice", state: .changesRequested, body: "fix the empty case")]
+        )
+        await reactor.react(to: state)
+
+        #expect(
+            try env.fixture.tipSHA(env.fixture.origin) != originTipBefore,
+            "the gate-approved review push should advance origin/\(env.fixture.branch)"
+        )
+        #expect(await reactor.handledReviewIDs == ["R1"])
+
+        // No respawn on the next identical poll.
+        await reactor.react(to: state)
+        #expect(await reactor.handledReviewIDs == ["R1"])
+    }
+
+    // MARK: - Scenario 9: unresolved head branch → decline, no push, retry (C1 guard)
+
+    /// When the PR head branch cannot be resolved, the addressing worker must
+    /// **decline** the push (never push to a junk branch) and leave the thread
+    /// unhandled for a later retry — the C1 decline guard mirroring ci-fix.
+    @Test("addressing decline guard: unresolved branch never pushes, leaves work for retry (C1)")
+    func addressingDeclinesWhenBranchUnresolved() async throws {
+        let env = try PipelineEnv(agentCommits: true, marker: "no-branch")
+        defer { env.cleanup() }
+        let pr = Self.ref(10)
+
+        let originTipBefore = try env.fixture.tipSHA(env.fixture.origin)
+
+        let worktreeStore = CIFixWorktreeStore()
+        let gate = env.makeAutonomyGate(worktreeStore: worktreeStore)
+        await gate.setMode(.auto, for: pr)
+
+        let spawner = env.makeSpawner(worktreeStore: worktreeStore)
+        let writer = RecordingPRWriter()
+        let reactor = ReviewThreadReactor(
+            spawner: spawner,
+            writer: writer,
+            gate: gate,
+            log: NoopReviewThreadLog(),
+            selfLogin: { "shepherd-bot" },
+            headBranchResolver: { _ in nil } // unresolved
+        )
+
+        await reactor.react(to: ShepherdState(
+            pullRequest: pr, phase: .watching,
+            reviewThreads: [Self.thread("T1", author: "alice")]
+        ))
+
+        // No push happened (origin unchanged) and the thread is NOT handled.
+        #expect(try env.fixture.tipSHA(env.fixture.origin) == originTipBefore)
+        #expect(await reactor.handledThreadIDs.isEmpty)
+        #expect(writer.threadReplies.isEmpty, "a declined push must not reply/resolve")
+        #expect(await gate.currentPending(for: pr).isEmpty)
+    }
+
+    // MARK: - Scenario 10: cancel/dismiss stops the addressing reactors (I1/I2)
+
+    /// `forget(for:)` (the dismiss/worker-✕ shared stop) clears an addressing
+    /// reactor's handled state **and** guards a late snapshot so it does not
+    /// re-trigger — and a fresh `rearm(for:)` (re-handoff) resumes it. This is the
+    /// I1/I2 lifecycle guard against the respawn-after-cancel hole.
+    @Test("cancel/dismiss stops the addressing reactor; re-handoff resumes it (I1/I2)")
+    func dismissStopsAddressingReactorAndReHandoffResumes() async throws {
+        let env = try PipelineEnv(agentCommits: true, marker: "addr-dismiss")
+        defer { env.cleanup() }
+        let pr = Self.ref(11)
+
+        let gate = AllowAllOutwardActionGate()
+        let registry = ShepherdWorkerRegistry()
+        let spawner = env.makeSpawner(registry: registry)
+        let reactor = ConversationCommentReactor(
+            spawner: spawner,
+            writer: RecordingPRWriter(),
+            gate: gate,
+            log: NoopConversationCommentLog(),
+            selfLogin: { "shepherd-bot" },
+            headBranchResolver: { _ in env.fixture.branch }
+        )
+
+        // Handle one comment, then dismiss (forget) the shepherd.
+        await reactor.react(to: ShepherdState(
+            pullRequest: pr, phase: .watching,
+            conversationComments: [comment(id: "C1", author: "alice", body: "rename foo()")]
+        ))
+        #expect(await reactor.handledCommentIDs == ["C1"])
+        let spawnsBeforeDismiss = spawner.conversationSpawnCount
+
+        await reactor.forget(for: pr) // dismiss / worker-✕ shared stop
+
+        // A late snapshot (new comment) for the dismissed PR must NOT spawn.
+        await reactor.react(to: ShepherdState(
+            pullRequest: pr, phase: .watching,
+            conversationComments: [comment(id: "C2", author: "alice", body: "another note")]
+        ))
+        #expect(
+            spawner.conversationSpawnCount == spawnsBeforeDismiss,
+            "a dismissed PR's reactor must not spawn on a late snapshot"
+        )
+        #expect(await reactor.handledCommentIDs.isEmpty, "forget cleared the PR's handled state")
+
+        // A fresh handoff re-arms it: a new comment is addressed again.
+        await reactor.rearm(for: pr)
+        await reactor.react(to: ShepherdState(
+            pullRequest: pr, phase: .watching,
+            conversationComments: [comment(id: "C3", author: "alice", body: "addressed?")]
+        ))
+        #expect(await reactor.handledCommentIDs == ["C3"], "a re-handed-off PR resumes addressing")
+    }
+
+    // MARK: - Scenario 11: worker-row ✕ shared cancel stops the ci-fix loop (I1)
+
+    /// The Fleet ✕ on a single worker row must route through the same per-PR stop
+    /// the dismiss cascade uses: resolve the worker → PR via the registry, then
+    /// cancel the ci-fix reactor for that PR so its "until green" loop does NOT
+    /// respawn a replacement. This drives the exact shared-path pieces the app's
+    /// `RegattaFleetManager.cancelWorker(_:)` composes, end-to-end.
+    @Test("worker-row ✕: registry reverse-lookup + reactor cancel stops the loop (I1)")
+    func workerRowCancelStopsCIFixLoopNoRespawn() async throws {
+        let env = try PipelineEnv(agentCommits: true, marker: "row-cancel")
+        defer { env.cleanup() }
+        let pr = Self.ref(12)
+
+        let worktreeStore = CIFixWorktreeStore()
+        let gate = env.makeAutonomyGate(worktreeStore: worktreeStore)
+        await gate.setMode(.auto, for: pr)
+        let registry = ShepherdWorkerRegistry()
+        let spawner = env.makeSpawner(worktreeStore: worktreeStore, registry: registry)
+        let poller = SequencedChecksPoller([.red(["build"])])
+        let reactor = CIFixReactor(
+            spawner: spawner, gate: gate, poller: poller, maxIterations: 5,
+            headBranchResolver: { _ in env.fixture.branch }
+        )
+
+        // Simulate the worker-row ✕ shared path BEFORE the loop runs: a worker is
+        // registered for the PR, the user clicks ✕ on that row → resolve PR via the
+        // registry reverse-lookup, then cancel the reactor for that PR.
+        let workerID = UUID()
+        await registry.record(workerID, for: pr)
+        let resolvedPR = try #require(await registry.pullRequest(for: workerID))
+        #expect(resolvedPR == pr)
+        await reactor.cancel(for: resolvedPR) // the I1 wiring the row ✕ must do
+
+        let originTipBefore = try env.fixture.tipSHA(env.fixture.origin)
+
+        // The loop now stops immediately as cancelled — no agent fix attempt runs,
+        // so no NEW worker is registered for the PR beyond the one we recorded above,
+        // and nothing is pushed.
+        let outcome = await reactor.runFixLoop(for: pr)
+        #expect(outcome == .cancelled)
+        #expect(
+            await registry.workerIDs(for: pr) == [workerID],
+            "the cancelled loop must not run (register) a replacement worker"
+        )
+        #expect(try env.fixture.tipSHA(env.fixture.origin) == originTipBefore, "no push on a cancelled loop")
+
+        // And a later red snapshot does not respawn (one cancel = one stop).
+        let redState = ShepherdState(
+            pullRequest: pr, phase: .watching,
+            checks: PRCheckSummary(checks: SequencedChecksPoller.CheckStep.red(["build"]).checks)
+        )
+        #expect(await reactor.ingest(redState) == nil, "a row-cancelled loop must not respawn")
+        #expect(try env.fixture.tipSHA(env.fixture.origin) == originTipBefore)
+    }
+
     // MARK: - Helpers
 
     static func ref(_ number: Int = 1) -> PullRequestRef {
         PullRequestRef(owner: "joshbermanssw", repo: "regatta", number: number)
+    }
+
+    /// Builds an open, commented review thread authored by `author`.
+    static func thread(_ id: String, author: String) -> ReviewThread {
+        ReviewThread(
+            id: id,
+            isResolved: false,
+            isOutdated: false,
+            path: "Sources/\(id).swift",
+            comments: [
+                ReviewComment(
+                    id: "\(id)-c0", body: "please fix", author: author,
+                    url: "https://github.com/joshbermanssw/regatta/pull/4/\(id)"
+                ),
+            ]
+        )
     }
 
     private func comment(id: String, author: String, body: String) -> PRConversationComment {

@@ -30,6 +30,11 @@ public struct ConversationCommentWorker: Sendable {
     private let gate: any OutwardActionGate
     private let log: any ConversationCommentActivityLogging
 
+    /// Resolves the PR's **head branch** the gate-routed push targets. When `nil`
+    /// the worker declines the push rather than pushing to a wrong branch (the
+    /// ci-fix decline guard). See ``ReviewThreadWorker`` for the rationale.
+    private let headBranchResolver: @Sendable (PullRequestRef) async -> String?
+
     /// Creates a worker.
     ///
     /// - Parameters:
@@ -37,16 +42,20 @@ public struct ConversationCommentWorker: Sendable {
     ///   - writer: The GitHub write seam used to post the conversation reply.
     ///   - gate: The autonomy gate every outward action is routed through (#32).
     ///   - log: The per-comment activity log.
+    ///   - headBranchResolver: Resolves the PR head branch the push targets;
+    ///     `nil` makes the worker decline the push.
     public init(
         spawner: any WorkerSpawning,
         writer: any PullRequestWriting,
         gate: any OutwardActionGate,
-        log: any ConversationCommentActivityLogging
+        log: any ConversationCommentActivityLogging,
+        headBranchResolver: @escaping @Sendable (PullRequestRef) async -> String? = { _ in nil }
     ) {
         self.spawner = spawner
         self.writer = writer
         self.gate = gate
         self.log = log
+        self.headBranchResolver = headBranchResolver
     }
 
     /// Addresses one conversation comment.
@@ -82,10 +91,19 @@ public struct ConversationCommentWorker: Sendable {
         var fullyHandled = true
 
         if result.pushedCodeChange {
-            let action = OutwardAction.pushConversationChange(commentID: comment.id)
+            // Resolve the PR head branch; decline (leave for retry) when unknown so
+            // the push never lands on a junk branch — the ci-fix decline guard.
+            guard let branch = await headBranchResolver(pullRequest), !branch.isEmpty else {
+                await log.log(.init(
+                    pullRequest: pullRequest, commentID: comment.id,
+                    event: .failed(reason: ReviewThreadWorker.unresolvedBranchReason)
+                ))
+                return false
+            }
+            // Route the push through the gate carrying the head branch so the
+            // production executor can run the real push (staged holds; auto runs).
+            let action = OutwardAction.pushConversationChange(commentID: comment.id, branch: branch)
             if await gate.authorize(action, for: pullRequest) == .allowed {
-                // The worker already produced the change; the gate only governs
-                // whether it is allowed to leave the machine.
                 await log.log(.init(
                     pullRequest: pullRequest, commentID: comment.id, event: .pushedCodeChange
                 ))

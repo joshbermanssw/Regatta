@@ -58,6 +58,15 @@ public actor ConversationCommentReactor {
     /// poll dispatching a duplicate before the first finishes.
     private var inFlight: Set<String> = []
 
+    /// Handled comment IDs grouped by PR id, so ``forget(for:)`` clears exactly one
+    /// PR's set without disturbing other PRs (the reactor is shared app-wide).
+    private var handledByPR: [String: Set<String>] = [:]
+
+    /// PRs whose shepherd was dismissed; their snapshots are ignored until a fresh
+    /// handoff re-arms them (``rearm(for:)``), so a late snapshot cannot re-trigger
+    /// dismissed work (I2).
+    private var dismissed: Set<String> = []
+
     /// Creates a reactor that dispatches the given worker.
     ///
     /// - Parameters:
@@ -81,19 +90,40 @@ public actor ConversationCommentReactor {
     ///   - log: The per-comment activity log.
     ///   - selfLogin: Resolves the authenticated `gh` user's login for the
     ///     self-author loop guard.
+    ///   - headBranchResolver: Resolves the PR head branch the gate-routed push
+    ///     targets; `nil` makes the worker decline the push (ci-fix decline guard).
     public init(
         spawner: any WorkerSpawning,
         writer: any PullRequestWriting,
         gate: any OutwardActionGate,
         log: any ConversationCommentActivityLogging,
-        selfLogin: @escaping @Sendable () async -> String?
+        selfLogin: @escaping @Sendable () async -> String?,
+        headBranchResolver: @escaping @Sendable (PullRequestRef) async -> String? = { _ in nil }
     ) {
-        self.worker = ConversationCommentWorker(spawner: spawner, writer: writer, gate: gate, log: log)
+        self.worker = ConversationCommentWorker(
+            spawner: spawner, writer: writer, gate: gate, log: log,
+            headBranchResolver: headBranchResolver
+        )
         self.selfLogin = selfLogin
     }
 
     /// The set of comment IDs handled so far. Exposed for tests and inspection.
     public var handledCommentIDs: Set<String> { handled }
+
+    /// Forgets one PR's state for a dismissed shepherd (I2). Clears exactly that
+    /// PR's handled / in-flight comment IDs and marks it dismissed so a late
+    /// snapshot cannot re-trigger work. Mirrors ``CIFixReactor/cancel(for:)``.
+    public func forget(for pullRequest: PullRequestRef) {
+        dismissed.insert(pullRequest.id)
+        let prCommentIDs = handledByPR.removeValue(forKey: pullRequest.id) ?? []
+        handled.subtract(prCommentIDs)
+        inFlight.subtract(prCommentIDs)
+    }
+
+    /// Re-arms a previously dismissed PR (on a fresh handoff).
+    public func rearm(for pullRequest: PullRequestRef) {
+        dismissed.remove(pullRequest.id)
+    }
 
     /// Drives the reactor from a watcher's snapshot stream until it finishes.
     ///
@@ -114,6 +144,9 @@ public actor ConversationCommentReactor {
     ///
     /// - Parameter state: The latest shepherd state.
     public func react(to state: ShepherdState) async {
+        // A dismissed PR is inert until a fresh handoff re-arms it (I2).
+        guard !dismissed.contains(state.pullRequest.id) else { return }
+
         let policy = ShepherdAuthorPolicy(selfLogin: await resolveSelfLogin())
 
         // The timeline position of the current user's most recent reply, if any.
@@ -133,8 +166,11 @@ public actor ConversationCommentReactor {
             inFlight.insert(comment.id)
             let fullyHandled = await worker.handle(comment, in: state.pullRequest)
             inFlight.remove(comment.id)
-            if fullyHandled {
+            // A dismiss that landed mid-flight must win: do not record for a
+            // now-dismissed PR (a re-handoff re-addresses it).
+            if fullyHandled, !dismissed.contains(state.pullRequest.id) {
                 handled.insert(comment.id)
+                handledByPR[state.pullRequest.id, default: []].insert(comment.id)
             }
         }
     }

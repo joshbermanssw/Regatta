@@ -12,14 +12,16 @@ struct ConversationCommentReactorTests {
         writer: StubPullRequestWriter = StubPullRequestWriter(),
         gate: StubGate = StubGate(),
         log: StubConversationCommentActivityLog = StubConversationCommentActivityLog(),
-        login: String? = "shepherd-bot"
+        login: String? = "shepherd-bot",
+        headBranch: String? = "feature/x"
     ) -> ConversationCommentReactor {
         ConversationCommentReactor(
             spawner: spawner,
             writer: writer,
             gate: gate,
             log: log,
-            selfLogin: { login }
+            selfLogin: { login },
+            headBranchResolver: { _ in headBranch }
         )
     }
 
@@ -98,7 +100,7 @@ struct ConversationCommentReactorTests {
         #expect(writer.conversationComments.map(\.body) == ["Done."])
         #expect(writer.conversationComments.first?.prNumber == pr.number)
         #expect(gate.seenActions.contains(.replyToConversation(commentID: "C1", body: "Done.")))
-        #expect(gate.seenActions.contains(.pushConversationChange(commentID: "C1")))
+        #expect(gate.seenActions.contains(.pushConversationChange(commentID: "C1", branch: "feature/x")))
     }
 
     @Test("the same comment is handled only once across repeated polls")

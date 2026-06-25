@@ -62,6 +62,15 @@ public actor ReviewSummaryReactor {
     /// dispatching a duplicate before the first finishes.
     private var inFlight: Set<String> = []
 
+    /// Handled review IDs grouped by PR id, so ``forget(for:)`` clears exactly one
+    /// PR's set without disturbing other PRs (the reactor is shared app-wide).
+    private var handledByPR: [String: Set<String>] = [:]
+
+    /// PRs whose shepherd was dismissed; their snapshots are ignored until a fresh
+    /// handoff re-arms them (``rearm(for:)``), so a late snapshot cannot re-trigger
+    /// dismissed work (I2).
+    private var dismissed: Set<String> = []
+
     /// Trivial acknowledgement bodies that are **not** substantive enough to act
     /// on for a non-blocking review (compared case-insensitively after trimming
     /// and stripping trailing punctuation).
@@ -93,19 +102,40 @@ public actor ReviewSummaryReactor {
     ///   - log: The per-review activity log.
     ///   - selfLogin: Resolves the authenticated `gh` user's login for the
     ///     self-author / already-answered skip rules.
+    ///   - headBranchResolver: Resolves the PR head branch the gate-routed push
+    ///     targets; `nil` makes the worker decline the push (ci-fix decline guard).
     public init(
         spawner: any WorkerSpawning,
         writer: any PullRequestWriting,
         gate: any OutwardActionGate,
         log: any ReviewSummaryActivityLogging,
-        selfLogin: @escaping @Sendable () async -> String?
+        selfLogin: @escaping @Sendable () async -> String?,
+        headBranchResolver: @escaping @Sendable (PullRequestRef) async -> String? = { _ in nil }
     ) {
-        self.worker = ReviewSummaryWorker(spawner: spawner, writer: writer, gate: gate, log: log)
+        self.worker = ReviewSummaryWorker(
+            spawner: spawner, writer: writer, gate: gate, log: log,
+            headBranchResolver: headBranchResolver
+        )
         self.selfLogin = selfLogin
     }
 
     /// The set of review IDs handled so far. Exposed for tests and inspection.
     public var handledReviewIDs: Set<String> { handled }
+
+    /// Forgets one PR's state for a dismissed shepherd (I2). Clears exactly that
+    /// PR's handled / in-flight review IDs and marks it dismissed so a late
+    /// snapshot cannot re-trigger work. Mirrors ``CIFixReactor/cancel(for:)``.
+    public func forget(for pullRequest: PullRequestRef) {
+        dismissed.insert(pullRequest.id)
+        let prReviewIDs = handledByPR.removeValue(forKey: pullRequest.id) ?? []
+        handled.subtract(prReviewIDs)
+        inFlight.subtract(prReviewIDs)
+    }
+
+    /// Re-arms a previously dismissed PR (on a fresh handoff).
+    public func rearm(for pullRequest: PullRequestRef) {
+        dismissed.remove(pullRequest.id)
+    }
 
     /// Drives the reactor from a watcher's snapshot stream until it finishes.
     ///
@@ -124,6 +154,9 @@ public actor ReviewSummaryReactor {
     ///
     /// - Parameter state: The latest shepherd state.
     public func react(to state: ShepherdState) async {
+        // A dismissed PR is inert until a fresh handoff re-arms it (I2).
+        guard !dismissed.contains(state.pullRequest.id) else { return }
+
         let policy = ShepherdAuthorPolicy(selfLogin: await resolveSelfLogin())
 
         // The timeline position of the current user's most recent review, if any.
@@ -141,8 +174,11 @@ public actor ReviewSummaryReactor {
             inFlight.insert(review.id)
             let fullyHandled = await worker.handle(review, in: state.pullRequest)
             inFlight.remove(review.id)
-            if fullyHandled {
+            // A dismiss that landed mid-flight must win: do not record for a
+            // now-dismissed PR (a re-handoff re-addresses it).
+            if fullyHandled, !dismissed.contains(state.pullRequest.id) {
                 handled.insert(review.id)
+                handledByPR[state.pullRequest.id, default: []].insert(review.id)
             }
         }
     }

@@ -25,6 +25,16 @@ public struct ReviewThreadWorker: Sendable {
     private let gate: any OutwardActionGate
     private let log: any ReviewThreadActivityLogging
 
+    /// Resolves the PR's **head branch** — the branch the gate-routed push targets
+    /// (`git push origin HEAD:<branch>`). Mirrors the ci-fix design: the worker
+    /// holds only a ``PullRequestRef``, which does not carry the head branch, so
+    /// the composition root injects this resolver (backed by the per-PR
+    /// head-branch map recorded at handoff). When it returns `nil` the worker
+    /// **declines the push** rather than pushing to a wrong (junk) branch, leaving
+    /// the thread unhandled for a later retry. Defaults to `nil` so tests that do
+    /// not exercise a push need not supply it.
+    private let headBranchResolver: @Sendable (PullRequestRef) async -> String?
+
     /// Creates a worker.
     ///
     /// - Parameters:
@@ -32,16 +42,20 @@ public struct ReviewThreadWorker: Sendable {
     ///   - writer: The GitHub write seam used to reply and resolve.
     ///   - gate: The autonomy gate every outward action is routed through (#32).
     ///   - log: The per-thread activity log.
+    ///   - headBranchResolver: Resolves the PR head branch the push targets;
+    ///     `nil` makes the worker decline the push (see ``headBranchResolver``).
     public init(
         spawner: any WorkerSpawning,
         writer: any PullRequestWriting,
         gate: any OutwardActionGate,
-        log: any ReviewThreadActivityLogging
+        log: any ReviewThreadActivityLogging,
+        headBranchResolver: @escaping @Sendable (PullRequestRef) async -> String? = { _ in nil }
     ) {
         self.spawner = spawner
         self.writer = writer
         self.gate = gate
         self.log = log
+        self.headBranchResolver = headBranchResolver
     }
 
     /// Addresses one review thread.
@@ -77,11 +91,24 @@ public struct ReviewThreadWorker: Sendable {
         var fullyHandled = true
 
         if result.pushedCodeChange {
-            let action = OutwardAction.pushCodeChange(threadID: thread.id)
+            // Resolve the PR's real head branch so the gate-routed push targets the
+            // PR (`git push origin HEAD:<branch>`). When the head branch is unknown
+            // the worker must NOT push (the push would land on a junk branch named
+            // after the repo): decline, leave the thread unhandled for a retry, and
+            // surface needs-attention — exactly the ci-fix decline guard.
+            guard let branch = await headBranchResolver(pullRequest), !branch.isEmpty else {
+                await log.log(.init(
+                    pullRequest: pullRequest, threadID: thread.id,
+                    event: .failed(reason: Self.unresolvedBranchReason)
+                ))
+                return false
+            }
+            // The worker committed locally (it is prompted to commit, not push).
+            // Route the *push* through the autonomy gate carrying the head branch so
+            // the production GitPushActionExecutor can run the real push (staged
+            // holds it for approval; auto executes it immediately).
+            let action = OutwardAction.pushCodeChange(threadID: thread.id, branch: branch)
             if await gate.authorize(action, for: pullRequest) == .allowed {
-                // The worker already produced the change; the gate only governs
-                // whether it is allowed to leave the machine. The spawner is the
-                // push seam (issue #16), so there is nothing more to invoke here.
                 await log.log(.init(
                     pullRequest: pullRequest, threadID: thread.id, event: .pushedCodeChange
                 ))
@@ -141,4 +168,10 @@ public struct ReviewThreadWorker: Sendable {
 
         return fullyHandled
     }
+
+    /// The activity-log reason recorded when the worker produced a change but the
+    /// PR's head branch could not be resolved, so the push was held rather than
+    /// pushed to a wrong branch.
+    static let unresolvedBranchReason =
+        "A fix is ready but the PR's head branch couldn't be resolved, so the push was held to avoid pushing to the wrong branch"
 }

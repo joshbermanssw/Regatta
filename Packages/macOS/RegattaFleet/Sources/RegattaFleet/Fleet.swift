@@ -83,6 +83,14 @@ public actor Fleet {
     /// no-op so tests and the explicit-factory init need not set it.
     private var dismissHandler: @Sendable (PullRequestRef) async -> Void = { _ in }
 
+    /// Cascade hook run when a PR is **handed off** (or re-handed-off), so the
+    /// composition root can re-arm anything a prior dismiss had stopped — chiefly
+    /// the addressing reactors' dismissed-guard, so a re-handoff genuinely resumes
+    /// (the symmetric counterpart of ``dismissHandler``). The Fleet stays free of
+    /// reactor dependencies: it only invokes this closure with the handed-off PR.
+    /// Defaults to a no-op so tests need not set it.
+    private var handoffHandler: @Sendable (PullRequestRef) async -> Void = { _ in }
+
     private var continuations: [UUID: AsyncStream<[ShepherdState]>.Continuation] = [:]
 
     /// Creates a Fleet with an explicit watcher factory.
@@ -168,6 +176,10 @@ public actor Fleet {
     /// - Returns: The shepherd's ``ShepherdWatcher`` (existing or newly created).
     @discardableResult
     public func handoff(_ pullRequest: PullRequestRef) -> ShepherdWatcher {
+        // Re-arm any per-PR state a prior dismiss stopped (the addressing reactors'
+        // dismissed-guard), so a re-handoff of a previously dismissed PR resumes.
+        // Fired on every handoff (idempotent), even when the watcher already exists.
+        Task { [handoffHandler] in await handoffHandler(pullRequest) }
         if let existing = watchers[pullRequest.id] {
             return existing
         }
@@ -249,6 +261,14 @@ public actor Fleet {
     /// closure with the dismissed PR.
     public func setDismissHandler(_ handler: @escaping @Sendable (PullRequestRef) async -> Void) {
         dismissHandler = handler
+    }
+
+    /// Sets the cascade hook run on ``handoff(_:)`` so the composition root can
+    /// re-arm anything a prior dismiss stopped (the addressing reactors'
+    /// dismissed-guard). Symmetric to ``setDismissHandler(_:)``; wired after the
+    /// reactors are constructed.
+    public func setHandoffHandler(_ handler: @escaping @Sendable (PullRequestRef) async -> Void) {
+        handoffHandler = handler
     }
 
     /// Removes (and stops) the shepherd for a PR, if present, and cascades a

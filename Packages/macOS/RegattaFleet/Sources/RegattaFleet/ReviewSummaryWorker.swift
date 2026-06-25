@@ -35,6 +35,11 @@ public struct ReviewSummaryWorker: Sendable {
     private let gate: any OutwardActionGate
     private let log: any ReviewSummaryActivityLogging
 
+    /// Resolves the PR's **head branch** the gate-routed push targets. When `nil`
+    /// the worker declines the push rather than pushing to a wrong branch (the
+    /// ci-fix decline guard). See ``ReviewThreadWorker`` for the rationale.
+    private let headBranchResolver: @Sendable (PullRequestRef) async -> String?
+
     /// Creates a worker.
     ///
     /// - Parameters:
@@ -42,16 +47,20 @@ public struct ReviewSummaryWorker: Sendable {
     ///   - writer: The GitHub write seam used to post the reply.
     ///   - gate: The autonomy gate every outward action is routed through (#32).
     ///   - log: The per-review activity log.
+    ///   - headBranchResolver: Resolves the PR head branch the push targets;
+    ///     `nil` makes the worker decline the push.
     public init(
         spawner: any WorkerSpawning,
         writer: any PullRequestWriting,
         gate: any OutwardActionGate,
-        log: any ReviewSummaryActivityLogging
+        log: any ReviewSummaryActivityLogging,
+        headBranchResolver: @escaping @Sendable (PullRequestRef) async -> String? = { _ in nil }
     ) {
         self.spawner = spawner
         self.writer = writer
         self.gate = gate
         self.log = log
+        self.headBranchResolver = headBranchResolver
     }
 
     /// Addresses one submitted review.
@@ -87,7 +96,18 @@ public struct ReviewSummaryWorker: Sendable {
         var fullyHandled = true
 
         if result.pushedCodeChange {
-            let action = OutwardAction.pushReviewChange(reviewID: review.id)
+            // Resolve the PR head branch; decline (leave for retry) when unknown so
+            // the push never lands on a junk branch — the ci-fix decline guard.
+            guard let branch = await headBranchResolver(pullRequest), !branch.isEmpty else {
+                await log.log(.init(
+                    pullRequest: pullRequest, reviewID: review.id,
+                    event: .failed(reason: ReviewThreadWorker.unresolvedBranchReason)
+                ))
+                return false
+            }
+            // Route the push through the gate carrying the head branch so the
+            // production executor can run the real push (staged holds; auto runs).
+            let action = OutwardAction.pushReviewChange(reviewID: review.id, branch: branch)
             if await gate.authorize(action, for: pullRequest) == .allowed {
                 await log.log(.init(
                     pullRequest: pullRequest, reviewID: review.id, event: .pushedCodeChange

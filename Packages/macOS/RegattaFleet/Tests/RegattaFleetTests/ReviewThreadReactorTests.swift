@@ -12,14 +12,16 @@ struct ReviewThreadReactorTests {
         writer: StubPullRequestWriter = StubPullRequestWriter(),
         gate: StubGate = StubGate(),
         log: StubActivityLog = StubActivityLog(),
-        login: String? = nil
+        login: String? = nil,
+        headBranch: String? = "feature/x"
     ) -> ReviewThreadReactor {
         ReviewThreadReactor(
             spawner: spawner,
             writer: writer,
             gate: gate,
             log: log,
-            selfLogin: { login }
+            selfLogin: { login },
+            headBranchResolver: { _ in headBranch }
         )
     }
 
@@ -50,7 +52,7 @@ struct ReviewThreadReactorTests {
         // Every outward action was offered to the gate.
         #expect(gate.seenActions.contains(.replyToThread(threadID: "T1", body: "Fixed.")))
         #expect(gate.seenActions.contains(.resolveThread(threadID: "T1")))
-        #expect(gate.seenActions.contains(.pushCodeChange(threadID: "T1")))
+        #expect(gate.seenActions.contains(.pushCodeChange(threadID: "T1", branch: "feature/x")))
     }
 
     @Test("the same thread is handled only once across repeated polls")

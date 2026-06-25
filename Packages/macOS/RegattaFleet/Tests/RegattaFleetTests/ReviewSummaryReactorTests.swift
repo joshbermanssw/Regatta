@@ -12,14 +12,16 @@ struct ReviewSummaryReactorTests {
         writer: StubPullRequestWriter = StubPullRequestWriter(),
         gate: StubGate = StubGate(),
         log: StubReviewSummaryActivityLog = StubReviewSummaryActivityLog(),
-        login: String? = "shepherd-bot"
+        login: String? = "shepherd-bot",
+        headBranch: String? = "feature/x"
     ) -> ReviewSummaryReactor {
         ReviewSummaryReactor(
             spawner: spawner,
             writer: writer,
             gate: gate,
             log: log,
-            selfLogin: { login }
+            selfLogin: { login },
+            headBranchResolver: { _ in headBranch }
         )
     }
 
@@ -235,7 +237,7 @@ struct ReviewSummaryReactorTests {
 
         #expect(writer.conversationComments.map(\.body) == ["Addressed in a follow-up commit."])
         #expect(gate.seenActions.contains(.replyToReview(reviewID: "R1", body: "Addressed in a follow-up commit.")))
-        #expect(gate.seenActions.contains(.pushReviewChange(reviewID: "R1")))
+        #expect(gate.seenActions.contains(.pushReviewChange(reviewID: "R1", branch: "feature/x")))
     }
 
     @Test("a pure approval the worker reports nothing-to-do posts no reply but is handled")

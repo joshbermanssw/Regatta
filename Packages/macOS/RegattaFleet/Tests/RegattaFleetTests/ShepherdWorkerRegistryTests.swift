@@ -51,4 +51,33 @@ struct ShepherdWorkerRegistryTests {
 
         #expect(await registry.workerIDs(for: pr).isEmpty)
     }
+
+    // MARK: - Reverse lookup (worker → PR), for the Fleet ✕ cancel path (I1)
+
+    @Test("maps a worker id back to the PR that owns it")
+    func reverseLookupFindsOwner() async {
+        let registry = ShepherdWorkerRegistry()
+        let a = UUID()
+        let b = UUID()
+        await registry.record(a, for: pr)
+        await registry.record(b, for: other)
+
+        #expect(await registry.pullRequest(for: a) == pr)
+        #expect(await registry.pullRequest(for: b) == other)
+    }
+
+    @Test("reverse lookup returns nil for an unknown worker")
+    func reverseLookupUnknownIsNil() async {
+        let registry = ShepherdWorkerRegistry()
+        #expect(await registry.pullRequest(for: UUID()) == nil)
+    }
+
+    @Test("reverse lookup stops resolving a worker once it is cleared")
+    func reverseLookupAfterClear() async {
+        let registry = ShepherdWorkerRegistry()
+        let a = UUID()
+        await registry.record(a, for: pr)
+        await registry.clear(a, for: pr)
+        #expect(await registry.pullRequest(for: a) == nil)
+    }
 }

@@ -57,6 +57,18 @@ public actor ReviewThreadReactor {
     /// poll dispatching a duplicate before the first finishes.
     private var inFlight: Set<String> = []
 
+    /// Handled thread IDs grouped by PR id, so ``forget(for:)`` can clear exactly
+    /// one PR's handled set without disturbing other PRs (the reactor is shared
+    /// app-wide across every shepherd). Thread IDs are globally unique, but a
+    /// dismiss must only forget the dismissed PR's IDs.
+    private var handledByPR: [String: Set<String>] = [:]
+
+    /// PRs whose shepherd was dismissed (via ``forget(for:)``). A dismissed PR's
+    /// snapshots are ignored so a late snapshot — one already queued when the
+    /// dismiss landed — cannot re-trigger work for a PR the user dismissed.
+    /// Cleared by ``rearm(for:)`` on a fresh handoff.
+    private var dismissed: Set<String> = []
+
     /// Creates a reactor that dispatches the given worker.
     ///
     /// - Parameters:
@@ -80,19 +92,46 @@ public actor ReviewThreadReactor {
     ///   - log: The per-thread activity log.
     ///   - selfLogin: Resolves the authenticated `gh` user's login for the
     ///     self-author / already-answered skip rules.
+    ///   - headBranchResolver: Resolves the PR head branch the gate-routed push
+    ///     targets; `nil` makes the worker decline the push (ci-fix decline guard).
     public init(
         spawner: any WorkerSpawning,
         writer: any PullRequestWriting,
         gate: any OutwardActionGate,
         log: any ReviewThreadActivityLogging,
-        selfLogin: @escaping @Sendable () async -> String?
+        selfLogin: @escaping @Sendable () async -> String?,
+        headBranchResolver: @escaping @Sendable (PullRequestRef) async -> String? = { _ in nil }
     ) {
-        self.worker = ReviewThreadWorker(spawner: spawner, writer: writer, gate: gate, log: log)
+        self.worker = ReviewThreadWorker(
+            spawner: spawner, writer: writer, gate: gate, log: log,
+            headBranchResolver: headBranchResolver
+        )
         self.selfLogin = selfLogin
     }
 
     /// The set of thread IDs handled so far. Exposed for tests and inspection.
     public var handledThreadIDs: Set<String> { handled }
+
+    /// Forgets one PR's state for a dismissed shepherd (I2).
+    ///
+    /// Clears exactly the dismissed PR's handled / in-flight thread IDs (leaving
+    /// other PRs' state intact, since the reactor is shared app-wide) and marks the
+    /// PR **dismissed**, so a late snapshot already queued when the dismiss landed
+    /// cannot re-trigger work for it. Called by the shepherd-dismiss cascade,
+    /// mirroring ``CIFixReactor/cancel(for:)``. A later ``rearm(for:)`` (on a fresh
+    /// handoff) clears the dismissed-guard.
+    public func forget(for pullRequest: PullRequestRef) {
+        dismissed.insert(pullRequest.id)
+        let prThreadIDs = handledByPR.removeValue(forKey: pullRequest.id) ?? []
+        handled.subtract(prThreadIDs)
+        inFlight.subtract(prThreadIDs)
+    }
+
+    /// Re-arms a previously dismissed PR (on a fresh handoff) so its snapshots are
+    /// processed again.
+    public func rearm(for pullRequest: PullRequestRef) {
+        dismissed.remove(pullRequest.id)
+    }
 
     /// Drives the reactor from a watcher's snapshot stream until it finishes.
     ///
@@ -113,6 +152,10 @@ public actor ReviewThreadReactor {
     ///
     /// - Parameter state: The latest shepherd state.
     public func react(to state: ShepherdState) async {
+        // A dismissed PR is inert until a fresh handoff re-arms it (``rearm(for:)``),
+        // so a late snapshot cannot re-trigger work the user dismissed (I2).
+        guard !dismissed.contains(state.pullRequest.id) else { return }
+
         let policy = ShepherdAuthorPolicy(selfLogin: await resolveSelfLogin())
 
         let newThreads = state.reviewThreads.filter { thread in
@@ -126,8 +169,11 @@ public actor ReviewThreadReactor {
             inFlight.insert(thread.id)
             let fullyHandled = await worker.handle(thread, in: state.pullRequest)
             inFlight.remove(thread.id)
-            if fullyHandled {
+            // A dismiss that landed while the worker ran must win: do not record the
+            // thread as handled for a now-dismissed PR (a re-handoff re-addresses it).
+            if fullyHandled, !dismissed.contains(state.pullRequest.id) {
                 handled.insert(thread.id)
+                handledByPR[state.pullRequest.id, default: []].insert(thread.id)
             }
         }
     }

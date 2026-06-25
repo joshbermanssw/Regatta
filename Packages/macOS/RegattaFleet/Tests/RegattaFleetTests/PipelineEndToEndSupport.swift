@@ -163,8 +163,17 @@ final class LiveOrchestratorSpawner: WorkerSpawning, @unchecked Sendable {
 
     private let lock = NSLock()
     private var _spawnCount = 0
+    private var _conversationSpawnCount = 0
+    private var _threadSpawnCount = 0
+    private var _reviewSpawnCount = 0
     /// Number of times ``spawn(_:)`` (the ci-fix path) was called.
     var spawnCount: Int { lock.withLock { _spawnCount } }
+    /// Number of conversation-comment addressing workers spawned.
+    var conversationSpawnCount: Int { lock.withLock { _conversationSpawnCount } }
+    /// Number of review-thread addressing workers spawned.
+    var threadSpawnCount: Int { lock.withLock { _threadSpawnCount } }
+    /// Number of review-summary addressing workers spawned.
+    var reviewSpawnCount: Int { lock.withLock { _reviewSpawnCount } }
 
     init(
         orchestrator: RegattaOrchestrator,
@@ -217,6 +226,7 @@ final class LiveOrchestratorSpawner: WorkerSpawning, @unchecked Sendable {
     // not exercised by the ci-fix pipeline scenarios; they run the same fake agent
     // and report whether it produced work, mirroring the app spawner's shape.
     func spawnWorker(for request: ReviewThreadWorkRequest) async throws -> ReviewThreadWorkResult {
+        lock.withLock { _threadSpawnCount += 1 }
         let pushed = await runOnceAndDetectWork(name: "thread \(request.thread.id)", for: request.pullRequest)
         return ReviewThreadWorkResult(
             pushedCodeChange: pushed,
@@ -226,6 +236,7 @@ final class LiveOrchestratorSpawner: WorkerSpawning, @unchecked Sendable {
     }
 
     func spawnWorker(for request: ConversationCommentWorkRequest) async throws -> ConversationCommentWorkResult {
+        lock.withLock { _conversationSpawnCount += 1 }
         let pushed = await runOnceAndDetectWork(name: "comment \(request.comment.id)", for: request.pullRequest)
         return ConversationCommentWorkResult(
             pushedCodeChange: pushed,
@@ -234,6 +245,7 @@ final class LiveOrchestratorSpawner: WorkerSpawning, @unchecked Sendable {
     }
 
     func spawnWorker(for request: ReviewSummaryWorkRequest) async throws -> ReviewSummaryWorkResult {
+        lock.withLock { _reviewSpawnCount += 1 }
         let pushed = await runOnceAndDetectWork(name: "review \(request.review.id)", for: request.pullRequest)
         return ReviewSummaryWorkResult(
             pushedCodeChange: pushed,
@@ -242,7 +254,10 @@ final class LiveOrchestratorSpawner: WorkerSpawning, @unchecked Sendable {
     }
 
     /// Spawns one worker, awaits terminal, and reports via the real diff probe
-    /// whether it produced work. Shared by the addressing spawn surfaces.
+    /// whether it produced work. Shared by the addressing spawn surfaces. When the
+    /// worker produced work it **records the worktree** into the shared store
+    /// (keyed by PR) so the gate-routed push resolves it — mirroring the app
+    /// spawner's addressing path (C1: addressing pushes need a recorded worktree).
     private func runOnceAndDetectWork(name: String, for pr: PullRequestRef) async -> Bool {
         let spec = WorkerSpec(name: name, prompt: "", repoURL: repoURL, agentLaunch: fakeAgentLaunch(), providerID: .claudeCode)
         let id = await orchestrator.spawnWorker(spec)
@@ -251,7 +266,11 @@ final class LiveOrchestratorSpawner: WorkerSpawning, @unchecked Sendable {
         await workerRegistry?.clear(id, for: pr)
         guard terminal?.status == .done,
               let worktree = await orchestrator.worktree(for: id) else { return false }
-        return (try? await diffProbe.hasProducedWork(at: worktree.path)) ?? false
+        let produced = (try? await diffProbe.hasProducedWork(at: worktree.path)) ?? false
+        if produced {
+            await worktreeStore?.record(worktree.path, for: pr)
+        }
+        return produced
     }
 }
 
@@ -482,4 +501,16 @@ final class RecordingPRWriter: PullRequestWriting, @unchecked Sendable {
 /// on the activity log.
 struct NoopConversationCommentLog: ConversationCommentActivityLogging {
     func log(_ activity: ConversationCommentActivity) async {}
+}
+
+/// A no-op ``ReviewThreadActivityLogging`` for scenarios that do not assert on the
+/// activity log.
+struct NoopReviewThreadLog: ReviewThreadActivityLogging {
+    func log(_ activity: ReviewThreadActivity) async {}
+}
+
+/// A no-op ``ReviewSummaryActivityLogging`` for scenarios that do not assert on the
+/// activity log.
+struct NoopReviewSummaryLog: ReviewSummaryActivityLogging {
+    func log(_ activity: ReviewSummaryActivity) async {}
 }

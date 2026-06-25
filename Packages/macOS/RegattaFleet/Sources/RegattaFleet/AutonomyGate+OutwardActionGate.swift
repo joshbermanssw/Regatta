@@ -10,9 +10,15 @@ import RegattaGitHub
 /// shepherd card renders.
 ///
 /// ## Mapping
-/// - ``OutwardAction/pushFix(pullRequest:branch:)`` becomes a
-///   ``PendingAction`` with ``ActionKind/push`` and the branch carried in the
-///   payload, then submitted via ``AutonomyGate/submit(_:)``.
+/// - Every push-kind action — ``OutwardAction/pushFix(pullRequest:branch:)`` and
+///   the three addressing pushes (``OutwardAction/pushCodeChange(threadID:branch:)``,
+///   ``OutwardAction/pushConversationChange(commentID:branch:)``,
+///   ``OutwardAction/pushReviewChange(reviewID:branch:)``) — becomes a
+///   ``PendingAction`` with ``ActionKind/push`` and the **head branch carried in
+///   the payload**, then submitted via ``AutonomyGate/submit(_:)``. The branch is
+///   load-bearing: the production ``GitPushActionExecutor`` requires it, so an
+///   addressing push that omitted it threw ``GitPushActionError/missingBranch``
+///   and the gate denied it forever (the respawn-forever bug).
 /// - ``AutonomyMode/auto`` ⇒ the push executes immediately; a clean execution
 ///   maps to ``OutwardActionVerdict/allowed``.
 /// - ``AutonomyMode/staged`` ⇒ the push is enqueued for the user's approval and
@@ -34,12 +40,12 @@ extension AutonomyGate: OutwardActionGate {
                 summary: "Push ci-fix commits to \(branch)",
                 payload: ActionPayload(fields: ["branch": branch])
             )
-        case let .pushCodeChange(threadID):
+        case let .pushCodeChange(threadID, branch):
             pending = PendingAction(
                 pullRequest: pullRequest,
                 kind: .push,
-                summary: "Push code change for thread \(threadID)",
-                payload: ActionPayload(fields: ["threadID": threadID])
+                summary: "Push code change for thread \(threadID) to \(branch)",
+                payload: ActionPayload(fields: ["threadID": threadID, "branch": branch])
             )
         case let .replyToThread(threadID, body):
             pending = PendingAction(
@@ -55,12 +61,12 @@ extension AutonomyGate: OutwardActionGate {
                 summary: "Resolve review thread \(threadID)",
                 payload: ActionPayload(fields: ["threadID": threadID])
             )
-        case let .pushConversationChange(commentID):
+        case let .pushConversationChange(commentID, branch):
             pending = PendingAction(
                 pullRequest: pullRequest,
                 kind: .push,
-                summary: "Push code change for comment \(commentID)",
-                payload: ActionPayload(fields: ["commentID": commentID])
+                summary: "Push code change for comment \(commentID) to \(branch)",
+                payload: ActionPayload(fields: ["commentID": commentID, "branch": branch])
             )
         case let .replyToConversation(commentID, body):
             pending = PendingAction(
@@ -69,12 +75,12 @@ extension AutonomyGate: OutwardActionGate {
                 summary: "Reply to conversation comment \(commentID)",
                 payload: ActionPayload(fields: ["commentID": commentID, "body": body])
             )
-        case let .pushReviewChange(reviewID):
+        case let .pushReviewChange(reviewID, branch):
             pending = PendingAction(
                 pullRequest: pullRequest,
                 kind: .push,
-                summary: "Push code change for review \(reviewID)",
-                payload: ActionPayload(fields: ["reviewID": reviewID])
+                summary: "Push code change for review \(reviewID) to \(branch)",
+                payload: ActionPayload(fields: ["reviewID": reviewID, "branch": branch])
             )
         case let .replyToReview(reviewID, body):
             pending = PendingAction(
