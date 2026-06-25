@@ -266,11 +266,15 @@ public actor GitHubPoller {
     ///
     /// Shells out to:
     /// ```
-    /// gh pr comment <prNumber> --repo <owner>/<repo> --body-file -
+    /// gh pr comment <prNumber> --repo <owner>/<repo> --body=<body>
     /// ```
-    /// The body is delivered on stdin (via `--body-file -`) rather than as an
-    /// argument so reply text containing quotes, backticks, or shell
-    /// metacharacters cannot break the invocation.
+    /// `gh` is launched with an explicit argument vector (never a shell string), so
+    /// shell metacharacters in the body — quotes, backticks, `$()` — are inert.
+    /// The body is passed in the `--body=<value>` (single-token) form rather than as
+    /// a separate `--body <value>` argument so a body that *starts with a dash*
+    /// (e.g. a markdown bullet list beginning `- item`) is taken literally as the
+    /// flag's value instead of being misparsed by `gh` as another option. Splitting
+    /// it into two tokens would make `gh pr comment` reject such a reply.
     ///
     /// > Important: The reactor must route this through the autonomy gate *and*
     /// > only ever post replies authored by the shepherd itself. Because the
@@ -294,7 +298,7 @@ public actor GitHubPoller {
         _ = try await commandRunner.run([
             "pr", "comment", "\(prNumber)",
             "--repo", "\(owner)/\(repo)",
-            "--body", body,
+            "--body=\(body)",
         ])
     }
 

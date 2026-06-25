@@ -26,13 +26,27 @@ struct CIFixReactorTests {
         ShepherdState(pullRequest: pr, phase: .watching, checks: PRCheckSummary(checks: green()))
     }
 
+    /// The PR's real head branch the composition root resolves at handoff. Tests
+    /// default to a real branch so the push path targets it (not the repo name);
+    /// the unresolved-branch path is covered explicitly by its own test.
+    private static let headBranch = "feature/fix-ci"
+
     private func makeReactor(
         spawner: StubWorkerSpawner,
         gate: StubOutwardActionGate,
         poller: SequencedPullRequestPoller,
-        maxIterations: Int = 5
+        maxIterations: Int = 5,
+        headBranch: String? = CIFixReactorTests.headBranch
     ) -> CIFixReactor {
-        CIFixReactor(spawner: spawner, gate: gate, poller: poller, maxIterations: maxIterations)
+        CIFixReactor(
+            spawner: spawner,
+            gate: gate,
+            maxIterations: maxIterations,
+            headBranchResolver: { _ in headBranch },
+            makeCondition: { ref in
+                CIFixLoopCondition(pullRequest: ref, poller: poller, maxIterations: maxIterations)
+            }
+        )
     }
 
     @Test("a check failure spawns a ci-fix worker scoped to the PR")
@@ -81,8 +95,57 @@ struct CIFixReactorTests {
         // Pushed once per iteration before it went green (iterations 0 and 1).
         #expect(gate.requestCount == 3)
         #expect(gate.requested.allSatisfy {
-            $0 == .pushFix(pullRequest: pr, branch: pr.repo)
+            $0 == .pushFix(pullRequest: pr, branch: Self.headBranch)
         })
+    }
+
+    @Test("the push targets the PR's resolved head branch, not the repo name")
+    func pushTargetsResolvedHeadBranch() async {
+        let spawner = StubWorkerSpawner(producesFix: true)
+        let gate = StubOutwardActionGate(verdict: .allowed)
+        let poller = SequencedPullRequestPoller([
+            .checks(failing()),
+            .checks(green()),
+        ])
+        // The composition root resolves the PR's real head branch (captured at
+        // handoff); the push must target it, not the repo name.
+        let reactor = CIFixReactor(
+            spawner: spawner,
+            gate: gate,
+            poller: poller,
+            headBranchResolver: { _ in "feature/widen-timeout" }
+        )
+
+        let outcome = await reactor.runFixLoop(for: pr)
+
+        #expect(outcome == .greenSuccess)
+        #expect(gate.requested.allSatisfy {
+            $0 == .pushFix(pullRequest: pr, branch: "feature/widen-timeout")
+        })
+        // Critically, it must NOT push to a branch named after the repo.
+        #expect(!gate.requested.contains(.pushFix(pullRequest: pr, branch: pr.repo)))
+    }
+
+    @Test("an unresolved head branch declines the push and flags needs attention")
+    func unresolvedHeadBranchDeclinesPush() async {
+        let spawner = StubWorkerSpawner(producesFix: true)
+        let gate = StubOutwardActionGate(verdict: .allowed)
+        let poller = SequencedPullRequestPoller([.checks(failing())])
+        // No recorded head branch for this PR (e.g. not handed off, store miss):
+        // the resolver returns nil. The reactor must decline to push to a wrong
+        // branch and report needs-attention rather than pushing `HEAD:<repo>`.
+        let reactor = CIFixReactor(
+            spawner: spawner,
+            gate: gate,
+            poller: poller,
+            headBranchResolver: { _ in nil }
+        )
+
+        let outcome = await reactor.runFixLoop(for: pr)
+
+        #expect(outcome.needsAttention == true)
+        // No push was authorized — the wrong-branch push must never be attempted.
+        #expect(gate.requestCount == 0)
     }
 
     @Test("hitting the cap while still red flags the PR as needs attention")
