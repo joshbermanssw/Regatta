@@ -690,27 +690,39 @@ struct ShepherdCard: View {
 
     /// The queue of actions awaiting approval in staged mode, reused from #32,
     /// each with an approve/reject pair.
+    ///
+    /// Made prominent (issue: pending approvals must be obvious): a counted
+    /// header, an amber-tinted container, and per-action rows that spell out what
+    /// the action will do plus large Approve / Reject controls.
     private var pendingApprovals: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            sectionLabel(String(localized: "fleet.section.pending", defaultValue: "Pending approval"))
+        VStack(alignment: .leading, spacing: 6) {
+            sectionLabel(pendingSectionTitle)
             ForEach(model.pending) { action in
-                HStack(spacing: 6) {
+                HStack(alignment: .top, spacing: 8) {
                     Image(systemName: pendingIcon(action.kind))
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                    Text(action.summary)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                        .frame(width: 14)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(pendingActionTitle(action.kind))
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.primary)
+                        Text(action.summary)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     Spacer(minLength: 4)
                     Button {
                         actions.onApprove(action.id)
                     } label: {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 11))
+                            .font(.system(size: 14))
                             .foregroundStyle(.green)
                     }
                     .buttonStyle(.plain)
+                    .help(String(localized: "fleet.pending.approve.help", defaultValue: "Run this action now"))
                     .accessibilityLabel(
                         String(localized: "fleet.pending.approve.a11y", defaultValue: "Approve action")
                     )
@@ -718,15 +730,41 @@ struct ShepherdCard: View {
                         actions.onReject(action.id)
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
+                            .font(.system(size: 14))
                             .foregroundStyle(.red)
                     }
                     .buttonStyle(.plain)
+                    .help(String(localized: "fleet.pending.reject.help", defaultValue: "Discard this action"))
                     .accessibilityLabel(
                         String(localized: "fleet.pending.reject.a11y", defaultValue: "Reject action")
                     )
                 }
+                .accessibilityElement(children: .combine)
             }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.orange.opacity(0.10))
+        )
+        .accessibilityIdentifier("ShepherdPendingApprovals")
+    }
+
+    /// The pending-approval section header, including how many are waiting.
+    private var pendingSectionTitle: String {
+        String.localizedStringWithFormat(
+            String(localized: "fleet.section.pending.count", defaultValue: "Pending approval (%lld)"),
+            model.pending.count
+        )
+    }
+
+    /// A short verb describing what a pending action will do when approved.
+    private func pendingActionTitle(_ kind: ActionKind) -> String {
+        switch kind {
+        case .push: return String(localized: "fleet.pending.title.push", defaultValue: "Push commit")
+        case .reply: return String(localized: "fleet.pending.title.reply", defaultValue: "Post reply")
+        case .resolve: return String(localized: "fleet.pending.title.resolve", defaultValue: "Resolve thread")
         }
     }
 
